@@ -4,6 +4,10 @@ import json
 from bs4 import BeautifulSoup
 from urllib.parse import unquote
 import re
+from googletrans import Translator
+import hashlib
+import os
+
 
 def init_wikipedia_api(language='en'):
     """ Initialize and return a Wikipedia API instance for the specified language. """
