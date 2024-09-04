@@ -5,27 +5,78 @@
     <script>
       document.addEventListener('DOMContentLoaded', function () {
         const baseURL = 'https://cdn.glitch.global/29f485a2-4e84-4a5b-bfc9-3c0a6a276b55/';
-        const audioFiles = ['beat.mp3', 'david-01.mp3', 'david-02.mp3', 'david-03.mp3', 'david-04.mp3', 'david-05.mp3'];
         const assetsContainer = document.querySelector('a-assets');
+        const sceneContainer = document.querySelector('a-scene');
 
-        audioFiles.forEach((fileName, index) => {
-          // Using any string after `?v=` to avoid caching issues
+        // Variables for start position/ Title sphere
+        let xPosition = 0;
+        let yPosition = 2; 
+        let zPosition = -5;
+        let headerCount = 0;
+
+        // Function to create an audio sphere
+        function createAudioSphere(id, audioPath, x, y, z) {
+          // Create audio element
           const audioElement = document.createElement('audio');
-          audioElement.id = `audio${index + 1}`;
+          audioElement.id = id;
           audioElement.preload = 'auto';
-          audioElement.src = `${baseURL}${fileName}?v=${Date.now()}`; // Appending a timestamp or any unique string
+          audioElement.src = `${baseURL}${audioPath}?v=${Date.now()}`; // Append a timestamp for cache busting
           assetsContainer.appendChild(audioElement);
 
-          // Create a sphere element for each audio file
+          // Create sphere element
           const sphereElement = document.createElement('a-sphere');
-          sphereElement.id = `audioSphere${index + 1}`;
-          sphereElement.setAttribute('position', `${-5 + index * 2.5} 1 ${-Math.abs(5 - index * 2.5)}`);
+          sphereElement.id = `sphere-${id}`;
+          sphereElement.setAttribute('position', `${x} ${y} ${z}`);
           sphereElement.setAttribute('radius', '0.5');
           sphereElement.setAttribute('color', '#EF2D5E');
           sphereElement.setAttribute('shader', 'flat');
-          sphereElement.setAttribute('sound', `src:#audio${index + 1}`);
-          document.querySelector('a-scene').appendChild(sphereElement);
-        });
+          sphereElement.setAttribute('sound', `src:#${id}`);
+          sceneContainer.appendChild(sphereElement);
+        }
+
+        // Function to traverse JSON and create audio spheres
+        function traverseJson(obj, level = 0) {
+          for (const key in obj) {
+            if (obj[key] && typeof obj[key] === 'object') {
+              // Create spheres for audio_path and text
+              if (obj[key].audio_path) {
+                createAudioSphere(
+                  key.replace(/[\W_]+/g, ""), // Use key as id, stripping special characters
+                  obj[key].audio_path,
+                  xPosition,
+                  yPosition,
+                  zPosition
+                );
+
+                // Adjust positions for next elements
+                if (key === "Title") {
+                  // Title sphere at starting position, no change to yPosition
+                  yPosition -= 2; // Move down for the Introduction sphere
+                } else if (key === "Introduction") {
+                  // Introduction sphere below Title
+                  yPosition -= 2; // Move down for the first Header sphere
+                } else if (key.startsWith('H2')) {
+                  headerCount++;
+                  yPosition -= 2; // Move down for each H2
+                } else if (key.startsWith('H3') || key.startsWith('P')) {
+                  yPosition -= 1.5; // Move down slightly less for paragraphs or sub-sections
+                } else {
+                  yPosition -= 1; // Move down for other sections
+                }
+              }
+
+              traverseJson(obj[key], level + 1); // Recursively traverse nested objects
+            }
+          }
+        }
+
+        // Fetch the JSON data and process it
+        fetch('data.json')  // Replace 'data.json' with the correct path to your JSON file
+          .then(response => response.json())
+          .then(data => {
+            traverseJson(data); // Start traversing the JSON to create elements
+          })
+          .catch(error => console.error('Error loading JSON data:', error));
       });
     </script>
   </head>
