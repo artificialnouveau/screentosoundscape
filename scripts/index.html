@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <script src="https://aframe.io/releases/1.6.0/aframe.min.js"></script>
+    <script>
+      document.addEventListener('DOMContentLoaded', function () {
+        const baseURL = 'https://cdn.glitch.global/29f485a2-4e84-4a5b-bfc9-3c0a6a276b55/';
+        const audioFiles = ['beat.mp3', 'david-01.mp3', 'david-02.mp3', 'david-03.mp3', 'david-04.mp3', 'david-05.mp3'];
+        const assetsContainer = document.querySelector('a-assets');
+
+        audioFiles.forEach((fileName, index) => {
+          // Using any string after `?v=` to avoid caching issues
+          const audioElement = document.createElement('audio');
+          audioElement.id = `audio${index + 1}`;
+          audioElement.preload = 'auto';
+          audioElement.src = `${baseURL}${fileName}?v=${Date.now()}`; // Appending a timestamp or any unique string
+          assetsContainer.appendChild(audioElement);
+
+          // Create a sphere element for each audio file
+          const sphereElement = document.createElement('a-sphere');
+          sphereElement.id = `audioSphere${index + 1}`;
+          sphereElement.setAttribute('position', `${-5 + index * 2.5} 1 ${-Math.abs(5 - index * 2.5)}`);
+          sphereElement.setAttribute('radius', '0.5');
+          sphereElement.setAttribute('color', '#EF2D5E');
+          sphereElement.setAttribute('shader', 'flat');
+          sphereElement.setAttribute('sound', `src:#audio${index + 1}`);
+          document.querySelector('a-scene').appendChild(sphereElement);
+        });
+      });
+    </script>
+  </head>
+  <body>
+    <a-scene>
+      <a-assets></a-assets>
+
+      <!-- Ground & sky -->
+      <a-plane
+        position="0 0 0"
+        rotation="-90 0 0"
+        width="40"
+        height="40"
+        color="#7BC8A4"
+      ></a-plane>
+      <a-sky color="#ECECEC"></a-sky>
+    </a-scene>
+  </body>
+</html>
