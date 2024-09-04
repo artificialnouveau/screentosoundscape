@@ -8,11 +8,12 @@
         const assetsContainer = document.querySelector('a-assets');
         const sceneContainer = document.querySelector('a-scene');
 
-        // Variables for start position/ Title sphere
+        // Variables for positioning
         let xPosition = 0;
-        let yPosition = 2; 
+        let yPosition = 2;  // Start position for Title sphere
         let zPosition = -5;
-        let headerCount = 0;
+        let headerXPosition = 0;  // Positioning for headers (H2)
+        let paragraphYPosition = 0; // Positioning for paragraphs under each header
 
         // Function to create an audio sphere
         function createAudioSphere(id, audioPath, x, y, z) {
@@ -56,12 +57,14 @@
                   // Introduction sphere below Title
                   yPosition -= 2; // Move down for the first Header sphere
                 } else if (key.startsWith('H2')) {
-                  headerCount++;
-                  yPosition -= 2; // Move down for each H2
+                  headerXPosition -= 2; // Move left for each H2 header
+                  paragraphYPosition = yPosition - 2; // Set Y position for paragraphs below this header
+                  xPosition = headerXPosition; // Update xPosition to align H2 headers on the same level
+                  yPosition = yPosition; // Keep yPosition the same for headers
                 } else if (key.startsWith('H3') || key.startsWith('P')) {
-                  yPosition -= 1.5; // Move down slightly less for paragraphs or sub-sections
-                } else {
-                  yPosition -= 1; // Move down for other sections
+                  xPosition = headerXPosition; // Align paragraphs below their respective headers
+                  yPosition = paragraphYPosition; // Place below the related header
+                  paragraphYPosition -= 1.5; // Move further down for next paragraph
                 }
               }
 
