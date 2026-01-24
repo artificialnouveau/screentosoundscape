@@ -1,0 +1,211 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <title>Tutorial — Screen-to-Soundscape</title>
+    <meta name="description" content="Screen-to-Soundscape prototype tutorial guide">
+    <link rel="stylesheet" href="assets/css/styles.css">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Source+Sans+Pro:ital,wght@0,300;0,400;0,700;1,300;1,700&display=swap" rel="stylesheet">
+</head>
+<body>
+    <!-- Mobile Navigation -->
+    <div id="mobile-nav">
+        <button id="mobile-menu-toggle" aria-label="Toggle navigation menu">
+            <span></span>
+            <span></span>
+            <span></span>
+        </button>
+        <nav id="mobile-nav-menu">
+            <ul>
+                <li><a href="index.html">Screen-to-Soundscape</a></li>
+                <li><a href="team.html">Team</a></li>
+                <li><a href="support.html">Support</a></li>
+                <li><a href="prototype.html">Prototype</a></li>
+                <li><a href="sounds.html">Sounds</a></li>
+                <li><a href="co-creation-sessions.html">Co-creation Sessions</a></li>
+                <li><a href="phase-1-report.html">Phase 1 Report</a></li>
+                <li><a href="phase-2-report.html">Phase 2 Report</a></li>
+                <li><a href="tutorial.html" class="active">Tutorial</a></li>
+            </ul>
+        </nav>
+    </div>
+
+    <!-- Header -->
+    <header id="header">
+        <div class="container">
+            <h1 class="logo">
+                <a href="index.html">Screen-to-Soundscape</a>
+            </h1>
+
+            <!-- Desktop Navigation -->
+            <nav id="main-nav" aria-label="Main navigation">
+                <ul>
+                    <li><a href="index.html">Screen-to-Soundscape</a></li>
+                    <li><a href="team.html">Team</a></li>
+                    <li><a href="support.html">Support</a></li>
+                    <li><a href="prototype.html">Prototype</a></li>
+                    <li><a href="sounds.html">Sounds</a></li>
+                    <li><a href="co-creation-sessions.html">Co-creation Sessions</a></li>
+                    <li><a href="phase-1-report.html">Phase 1 Report</a></li>
+                    <li><a href="phase-2-report.html">Phase 2 Report</a></li>
+                    <li><a href="tutorial.html" class="active">Tutorial</a></li>
+                </ul>
+            </nav>
+        </div>
+    </header>
+
+    <!-- Main Content -->
+    <main id="main-content">
+        <div class="container">
+            <!-- Tutorial Section -->
+            <section id="tutorial" class="about-section">
+                <div class="content-block">
+                    <h2>Current Prototype Tutorial</h2>
+                </div>
+
+                <!-- Tutorial Description -->
+                <div class="content-block">
+                    <p>The tutorial functions as an integrated, step-by-step guide featuring these characteristics:</p>
+                </div>
+
+                <!-- Tutorial Features -->
+                <div class="content-block">
+                    <h3>Tutorial Features</h3>
+                    <ul>
+                        <li><strong>Auto-starts</strong> upon first app launch</li>
+                        <li><strong>Toggleable</strong> via the H key</li>
+                        <li><strong>Core teaching method:</strong> Sound-based instruction</li>
+                        <li><strong>Primary controls taught:</strong>
+                            <ul>
+                                <li>Tab - advance to next step</li>
+                                <li>Enter - activate command mode</li>
+                                <li>T - push-to-talk AI assistant</li>
+                                <li>Arrow keys - movement and rotation</li>
+                            </ul>
+                        </li>
+                    </ul>
+                </div>
+
+                <!-- Feedback Mechanisms -->
+                <div class="content-block">
+                    <h3>Feedback Mechanisms</h3>
+                    <p>The tutorial provides distinct cues for spawn/landing, a short earcon when command mode opens, and clear wall signals for bumps or sliding along boundaries. These audio cues help users understand their position and available actions at all times.</p>
+                </div>
+
+                <!-- Additional Features -->
+                <div class="content-block">
+                    <h3>Additional Features</h3>
+                    <ul>
+                        <li><strong>Recovery tools:</strong> Built-in help for when users get lost or disoriented</li>
+                        <li><strong>Orientation shortcuts:</strong> "Where am I?" queries to get current location information</li>
+                        <li><strong>Restart capability:</strong> Press F1 to restart the tutorial at any time</li>
+                        <li><strong>Relaunchable guidance:</strong> Tutorial can be accessed again even after completion</li>
+                    </ul>
+                </div>
+
+                <!-- Design Philosophy -->
+                <div class="content-block">
+                    <h3>Design Philosophy</h3>
+                    <p>The tutorial serves as scaffolding reducing cognitive load and replacing silence with ambient soundscaping while enabling independent exploration. Rather than simply providing instructions, it creates a supportive learning environment that helps users build confidence in navigating the soundscape.</p>
+                </div>
+
+                <!-- Getting Started -->
+                <div class="content-block translation">
+                    <h3>Getting Started</h3>
+                    <p>To begin using Screen-to-Soundscape:</p>
+                    <ol>
+                        <li>Download the latest version from <a href="https://github.com/vladimirnani/screen2soundscape/releases/tag/1.0.5" target="_blank" rel="noopener noreferrer">GitHub (v1.0.5)</a></li>
+                        <li>Launch the application - the tutorial will start automatically on first run</li>
+                        <li>Use headphones for the best spatial audio experience</li>
+                        <li>Follow the audio instructions to learn the basic controls</li>
+                        <li>Press H at any time to toggle the tutorial on or off</li>
+                        <li>Press F1 to restart the tutorial from the beginning</li>
+                    </ol>
+                </div>
+
+                <!-- Key Controls Reference -->
+                <div class="content-block">
+                    <h3>Key Controls Reference</h3>
+                    <table style="width: 100%; border-collapse: collapse; margin-top: 20px;">
+                        <thead>
+                            <tr style="background-color: #f8f8f8;">
+                                <th style="padding: 12px; text-align: left; border-bottom: 2px solid #e5e5e5;">Key</th>
+                                <th style="padding: 12px; text-align: left; border-bottom: 2px solid #e5e5e5;">Action</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr>
+                                <td style="padding: 12px; border-bottom: 1px solid #e5e5e5;"><strong>H</strong></td>
+                                <td style="padding: 12px; border-bottom: 1px solid #e5e5e5;">Toggle tutorial on/off</td>
+                            </tr>
+                            <tr>
+                                <td style="padding: 12px; border-bottom: 1px solid #e5e5e5;"><strong>F1</strong></td>
+                                <td style="padding: 12px; border-bottom: 1px solid #e5e5e5;">Restart tutorial</td>
+                            </tr>
+                            <tr>
+                                <td style="padding: 12px; border-bottom: 1px solid #e5e5e5;"><strong>Tab</strong></td>
+                                <td style="padding: 12px; border-bottom: 1px solid #e5e5e5;">Advance to next tutorial step</td>
+                            </tr>
+                            <tr>
+                                <td style="padding: 12px; border-bottom: 1px solid #e5e5e5;"><strong>Enter</strong></td>
+                                <td style="padding: 12px; border-bottom: 1px solid #e5e5e5;">Activate command mode</td>
+                            </tr>
+                            <tr>
+                                <td style="padding: 12px; border-bottom: 1px solid #e5e5e5;"><strong>T</strong></td>
+                                <td style="padding: 12px; border-bottom: 1px solid #e5e5e5;">Push-to-talk AI assistant</td>
+                            </tr>
+                            <tr>
+                                <td style="padding: 12px; border-bottom: 1px solid #e5e5e5;"><strong>Arrow Keys</strong></td>
+                                <td style="padding: 12px; border-bottom: 1px solid #e5e5e5;">Move and rotate in the soundscape</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+
+                <!-- Tips for Best Experience -->
+                <div class="content-block translation">
+                    <h3>Tips for Best Experience</h3>
+                    <ul>
+                        <li>Use high-quality headphones for optimal spatial audio perception</li>
+                        <li>Find a quiet environment to fully immerse in the soundscape</li>
+                        <li>Take breaks if you feel fatigued - sound-based navigation can be cognitively demanding</li>
+                        <li>Don't worry about making mistakes - you can always restart the tutorial with F1</li>
+                        <li>Listen for the constant ambient sounds - "silence feels like being lost"</li>
+                        <li>Pay attention to surface sounds under your footsteps - they indicate what type of ground you're on</li>
+                    </ul>
+                </div>
+            </section>
+        </div>
+    </main>
+
+    <!-- Footer -->
+    <footer id="footer">
+        <div class="container">
+            <p>&copy; 2024 Screen-to-Soundscape. All rights reserved.</p>
+        </div>
+    </footer>
+
+    <script>
+        // Mobile menu toggle
+        const mobileMenuToggle = document.getElementById('mobile-menu-toggle');
+        const mobileNavMenu = document.getElementById('mobile-nav-menu');
+
+        mobileMenuToggle.addEventListener('click', function() {
+            mobileNavMenu.classList.toggle('active');
+            mobileMenuToggle.classList.toggle('active');
+        });
+
+        // Close mobile menu when clicking a link
+        document.querySelectorAll('#mobile-nav-menu a').forEach(link => {
+            link.addEventListener('click', function() {
+                mobileNavMenu.classList.remove('active');
+                mobileMenuToggle.classList.remove('active');
+            });
+        });
+    </script>
+</body>
+</html>
