@@ -1,0 +1,175 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <title>Screen-to-Soundscape</title>
+    <meta name="description" content="An experimental approach to re-imaging screen readers for blind and visually impaired users">
+    <link rel="stylesheet" href="assets/css/styles.css">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Source+Sans+Pro:ital,wght@0,300;0,400;0,700;1,300;1,700&display=swap" rel="stylesheet">
+</head>
+<body>
+    <!-- Mobile Navigation -->
+    <div id="mobile-nav">
+        <button id="mobile-menu-toggle" aria-label="Toggle navigation menu">
+            <span></span>
+            <span></span>
+            <span></span>
+        </button>
+        <nav id="mobile-nav-menu">
+            <ul>
+                <li><a href="#home" class="active">Screen-to-Soundscape</a></li>
+                <li><a href="#team">Team</a></li>
+                <li><a href="#support">Support</a></li>
+                <li><a href="#prototype">Prototype</a></li>
+                <li><a href="#sounds">Sounds</a></li>
+                <li><a href="#cocreation">Co-creation Sessions</a></li>
+                <li><a href="#phase1">Phase 1 Report</a></li>
+                <li><a href="#phase2">Phase 2 Report</a></li>
+                <li><a href="#tutorial">Tutorial</a></li>
+            </ul>
+        </nav>
+    </div>
+
+    <!-- Header -->
+    <header id="header">
+        <div class="container">
+            <h1 class="logo">
+                <a href="#home">Screen-to-Soundscape</a>
+            </h1>
+
+            <!-- Desktop Navigation -->
+            <nav id="main-nav" aria-label="Main navigation">
+                <ul>
+                    <li><a href="#home" class="active">Screen-to-Soundscape</a></li>
+                    <li><a href="#team">Team</a></li>
+                    <li><a href="#support">Support</a></li>
+                    <li><a href="#prototype">Prototype</a></li>
+                    <li><a href="#sounds">Sounds</a></li>
+                    <li><a href="#cocreation">Co-creation Sessions</a></li>
+                    <li><a href="#phase1">Phase 1 Report</a></li>
+                    <li><a href="#phase2">Phase 2 Report</a></li>
+                    <li><a href="#tutorial">Tutorial</a></li>
+                </ul>
+            </nav>
+        </div>
+    </header>
+
+    <!-- Main Content -->
+    <main id="main-content">
+        <div class="container">
+            <!-- Hero Section -->
+            <section id="hero" class="hero-section">
+                <div class="hero-image-wrapper">
+                    <img src="assets/images/hero-image.png"
+                         alt="An abstract arrangement of 13 colored dots on a green background, forming a loose arrow or tree-like shape pointing upwards. The dots vary in color, including shades of green, blue, yellow, orange, and red, and are spread out with some closer together, giving a sense of layered depth and subtle gradient."
+                         class="hero-image">
+                </div>
+                <p class="hero-caption">
+                    <em>An abstract arrangement of 13 colored dots on a green background, forming a loose arrow or tree-like shape pointing upwards. The dots vary in color, including shades of green, blue, yellow, orange, and red, and are spread out with some closer together, giving a sense of layered depth and subtle gradient.</em>
+                </p>
+            </section>
+
+            <!-- About Section -->
+            <section id="about" class="about-section">
+                <div class="content-block">
+                    <p><strong>Screen-to-Soundscape</strong> adopts an experimental approach to re-imaging screen readers in order to address the current limitations for blind and visually impaired users. Our goal is to develop a free and open-source explorative tool that transforms a screen into an immersive soundscape, with a strong focus on providing rich, descriptive alt-text for images and maps. Using open-source computer vision algorithms, our system will analyze visual elements to generate detailed and customizable alt-text tailored to user preferences, offering a more comprehensive understanding of visual content. Additionally, the prototype will feature spatial audio, using multiple layered voices to read out the content, which ideally would enhance the users' navigation and interaction with digital content.</p>
+
+                    <p>Our motivation is to provide a more intuitive and engaging navigation experience. Traditional screen readers often skip images, videos, and maps, and offer limited customization, especially in voice diversity. By incorporating spatial audio, novel computer vision algorithms, diverse voice options, and a customizable alt-text tool, our tool ensures all content is accessible and allows users to personalize their auditory experience, making digital navigation more natural and comprehensive.</p>
+
+                    <p>Check out our phase 1 prototype demo below.</p>
+                </div>
+
+                <!-- Video Embed -->
+                <div class="video-wrapper">
+                    <iframe src="https://www.youtube.com/embed/kGNphqx7eCA"
+                            title="Screen-to-Soundscape Prototype Demo"
+                            frameborder="0"
+                            allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                            allowfullscreen>
+                    </iframe>
+                </div>
+
+                <!-- Audio Section -->
+                <div class="audio-section">
+                    <p>You can listen to the Screen-to-Soundscape NotebookML generated podcast here:</p>
+                    <audio controls class="podcast-player">
+                        <source src="https://static1.squarespace.com/static/66f65c05d2542e3def1185bd/t/67082ccda436087a846f5647/1728589022520/ScreenToSoundscape.mp3/original/ScreenToSoundscape.mp3" type="audio/mpeg">
+                        Your browser does not support the audio element.
+                    </audio>
+                    <p class="audio-caption">Screen to Soundscape Podcast Summary - NotebookML</p>
+                </div>
+
+                <!-- French Translation -->
+                <div class="content-block translation">
+                    <h2>Français</h2>
+                    <p>Screen-to-Soundscape adopte une approche expérimentale pour réimaginer les lecteurs d'écran, en abordant les limitations actuelles pour les utilisateurs aveugles et malvoyants. Notre objectif est de développer un outil d'exploration gratuit et open source qui transforme un écran en un paysage sonore immersif, en mettant l'accent sur la fourniture d'un texte alternatif riche et descriptif pour les images et les cartes. En utilisant des algorithmes de vision par ordinateur open source, notre système analysera les éléments visuels pour générer un texte alternatif détaillé et personnalisable adapté aux préférences de l'utilisateur, offrant une compréhension plus complète du contenu visuel. De plus, le prototype comportera un son spatial, utilisant plusieurs voix superposées pour lire le contenu, ce qui, idéalement, améliorerait la navigation et l'interaction des utilisateurs avec le contenu numérique.</p>
+
+                    <p>Notre motivation est de fournir une expérience de navigation plus intuitive et plus engageante. Les lecteurs d'écran traditionnels ignorent souvent les images, les vidéos et les cartes, et offrent une personnalisation limitée, en particulier en termes de diversité vocale. En intégrant l'audio spatial, de nouveaux algorithmes de vision par ordinateur, diverses options vocales et un outil de texte alternatif personnalisable, notre outil garantit que tout le contenu est accessible et permet aux utilisateurs de personnaliser leur expérience auditive, rendant la navigation numérique plus naturelle et plus complète.</p>
+                </div>
+            </section>
+
+            <!-- Support Section -->
+            <section id="support-section" class="support-section">
+                <h2>Screen-to-Soundscape was supported by:</h2>
+                <div class="logo-grid">
+                    <a href="https://constantvzw.org/site/" target="_blank" rel="noopener noreferrer" class="logo-item">
+                        <img src="assets/images/constant-vzw.png" alt="Constant VZW Belgium">
+                    </a>
+                    <a href="https://processingfoundation.org/" target="_blank" rel="noopener noreferrer" class="logo-item">
+                        <img src="assets/images/processing-foundation.jpg" alt="Processing Foundation Logo">
+                    </a>
+                    <a href="https://www.stimuleringsfonds.nl/" target="_blank" rel="noopener noreferrer" class="logo-item">
+                        <img src="assets/images/stimuleringsfonds.jpg" alt="Stimulerings Fonds">
+                    </a>
+                    <a href="https://www.sidnfonds.nl/" target="_blank" rel="noopener noreferrer" class="logo-item">
+                        <img src="assets/images/sidns-logo.png" alt="SIDNS fonds logo">
+                    </a>
+                </div>
+            </section>
+        </div>
+    </main>
+
+    <!-- Footer -->
+    <footer id="footer">
+        <div class="container">
+            <p>&copy; 2024 Screen-to-Soundscape. All rights reserved.</p>
+        </div>
+    </footer>
+
+    <script>
+        // Mobile menu toggle
+        const mobileMenuToggle = document.getElementById('mobile-menu-toggle');
+        const mobileNavMenu = document.getElementById('mobile-nav-menu');
+
+        mobileMenuToggle.addEventListener('click', function() {
+            mobileNavMenu.classList.toggle('active');
+            mobileMenuToggle.classList.toggle('active');
+        });
+
+        // Smooth scrolling for anchor links
+        document.querySelectorAll('a[href^="#"]').forEach(anchor => {
+            anchor.addEventListener('click', function (e) {
+                const href = this.getAttribute('href');
+                if (href !== '#' && href !== '#home') {
+                    e.preventDefault();
+                    const target = document.querySelector(href);
+                    if (target) {
+                        target.scrollIntoView({
+                            behavior: 'smooth'
+                        });
+                    }
+                }
+                // Close mobile menu if open
+                if (mobileNavMenu.classList.contains('active')) {
+                    mobileNavMenu.classList.remove('active');
+                    mobileMenuToggle.classList.remove('active');
+                }
+            });
+        });
+    </script>
+</body>
+</html>
