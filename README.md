@@ -1,101 +1,131 @@
 # Screen-to-Soundscape
 
-A clean, responsive static website for the Screen-to-Soundscape project - an experimental approach to re-imaging screen readers for blind and visually impaired users.
+An experimental approach to re-imaging screen readers for blind and visually impaired users.
 
-## About
+## About the Project
 
 **Screen-to-Soundscape** adopts an experimental approach to re-imaging screen readers in order to address the current limitations for blind and visually impaired users. Our goal is to develop a free and open-source explorative tool that transforms a screen into an immersive soundscape, with a strong focus on providing rich, descriptive alt-text for images and maps.
+
+The project converts HTML content into an audio format using various voices for different semantic elements of the HTML. It uses the ElevenLabs API for text-to-speech conversion, providing a richer auditory experience through customized voice outputs for different parts of the HTML structure. Additionally, it features spatial audio effects to enhance the auditory landscape.
+
+## Repository Contents
+
+This repository contains two main components:
+
+### 1. Project Website (Root Directory)
+- `index.html` - Main project website
+- `PREVIEW-index.html` - Local preview version
+- `assets/` - Website assets (CSS, images)
+- Clean, responsive static website showcasing the project
+
+### 2. Development Scripts (`scripts/` Directory)
+- Python scripts for HTML-to-audio conversion
+- Wiki API integration
+- Audio generation tools
+- Glitch effects and sequential playback
 
 ## Project Structure
 
 ```
 screentosoundscape/
-├── index.html              # Main homepage
+├── index.html                    # Project website homepage
+├── PREVIEW-index.html            # Local preview
 ├── assets/
 │   ├── css/
-│   │   └── styles.css      # Main stylesheet
-│   └── images/
-│       ├── hero-image.png
-│       ├── constant-vzw.png
-│       ├── processing-foundation.jpg
-│       ├── stimuleringsfonds.jpg
-│       └── sidns-logo.png
-├── source.html             # Original Squarespace HTML (reference)
-└── README.md               # This file
+│   │   └── styles.css           # Website styles
+│   └── images/                   # Logo images
+├── scripts/
+│   ├── 01_wiki_api.py           # Wikipedia API integration
+│   ├── 02_wiki_data_to_audio.py # Audio conversion
+│   ├── html_scraping_voice_generation.py
+│   └── index.html               # Glitch audio player
+├── wiki_jsons/                   # Wiki data storage
+└── README.md
 ```
 
-## Features
+## Website Features
 
-- Clean, semantic HTML5 structure
 - Responsive design that works on all devices
 - Accessible navigation with ARIA labels
 - Mobile-friendly hamburger menu
 - Embedded YouTube video demo
 - Audio podcast player
 - Support organization logos with links
-- Smooth scrolling navigation
 - French translation section
+
+## Development Features
+
+### Wiki JSON Structure
+
+The JSON file created includes:
+- **Title**: The title of the Wikipedia page
+- **Introduction**: The introductory text
+- **Sections**: Nested structure representing content hierarchy
+  - Title of the Section (H1, H2, etc.)
+  - Text Content with markdown links
+  - Subsections (nested)
+  - P_audio: path of the audio file
+
+**Naming Convention**: Audio files are named according to the structure they represent (e.g., "Introduction.mp3")
+
+### Parsing the JSON
+
+```python
+# Access the Title
+json_data['Title']
+
+# Read the Introduction
+json_data['Introduction']
+
+# Navigate Sections
+json_data['Sections']['H1: Section Title']['P']
+```
+
+## Local Development
+
+### View Website Locally
+```bash
+# Open in browser
+open PREVIEW-index.html
+
+# Or use a local server
+python3 -m http.server 8000
+# Then visit http://localhost:8000
+```
+
+### Run Development Scripts
+```bash
+cd scripts/
+python3 01_wiki_api.py
+python3 02_wiki_data_to_audio.py
+```
+
+## Deployment to GitHub Pages
+
+The website is automatically deployed via GitHub Pages.
+
+Visit: **https://artificialnouveau.github.io/screentosoundscape/**
 
 ## Technologies Used
 
+**Website:**
 - HTML5
 - CSS3 (Custom responsive design)
 - JavaScript (Vanilla JS for mobile menu)
 - Google Fonts (Source Sans Pro)
 
-## Deployment to GitHub Pages
+**Development:**
+- Python 3
+- ElevenLabs API
+- Wikipedia API
+- Spatial audio processing
 
-### Option 1: Using GitHub Web Interface
+## Supported By
 
-1. Go to GitHub and create a new repository named `screentosoundscape`
-2. Upload all files from this directory to the repository
-3. Go to repository Settings > Pages
-4. Under "Source", select "main" branch and "/" (root) folder
-5. Click Save
-6. Your site will be published at `https://[username].github.io/screentosoundscape/`
-
-### Option 2: Using Git Command Line
-
-```bash
-cd /Users/ahnjili_harmony/Documents/GitHub/screentosoundscape
-git init
-git add .
-git commit -m "Initial commit: Screen-to-Soundscape website"
-git branch -M main
-git remote add origin https://github.com/[username]/screentosoundscape.git
-git push -u origin main
-```
-
-Then enable GitHub Pages in repository settings.
-
-### Option 3: Custom Domain (screentosoundscape.github.io)
-
-To use `screentosoundscape.github.io` as the URL:
-
-1. Create a repository named `screentosoundscape.github.io`
-2. Upload all files
-3. The site will automatically be published at `https://screentosoundscape.github.io/`
-
-## Local Development
-
-To view the site locally:
-
-1. Open `index.html` in a web browser, or
-2. Use a local server (recommended):
-   ```bash
-   # Using Python 3
-   cd /Users/ahnjili_harmony/Documents/GitHub/screentosoundscape
-   python3 -m http.server 8000
-   # Then visit http://localhost:8000 in your browser
-   ```
-
-## Browser Support
-
-- Chrome (latest)
-- Firefox (latest)
-- Safari (latest)
-- Edge (latest)
-- Mobile browsers (iOS Safari, Chrome Mobile)
+- [Constant VZW Belgium](https://constantvzw.org/site/)
+- [Processing Foundation](https://processingfoundation.org/)
+- [Stimuleringsfonds](https://www.stimuleringsfonds.nl/)
+- [SIDN Fonds](https://www.sidnfonds.nl/)
 
 ## Accessibility
 
@@ -109,28 +139,11 @@ The site has been built with accessibility in mind:
 
 ## Credits
 
-This site was converted from the original Squarespace site at https://www.screentosoundscape.com/
-
-### Supported By
-
-- [Constant VZW Belgium](https://constantvzw.org/site/)
-- [Processing Foundation](https://processingfoundation.org/)
-- [Stimuleringsfonds](https://www.stimuleringsfonds.nl/)
-- [SIDN Fonds](https://www.sidnfonds.nl/)
+Website converted from the original at https://www.screentosoundscape.com/
 
 ## License
 
-Please refer to the original Screen-to-Soundscape project for licensing information.
-
-## Contact
-
-For more information about the Screen-to-Soundscape project, please visit the sections on:
-- Team
-- Support
-- Prototype
-- Co-creation Sessions
-- Reports
-- Tutorial
+Please refer to the LICENSE file for licensing information.
 
 ---
 

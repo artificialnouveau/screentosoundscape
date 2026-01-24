@@ -1,0 +1,219 @@
+//////////////// FETCH JSON DATA ////////////////
+function fetchJSONData() {
+  fetch("./en_wiki_Galaxy_with_audio.json")
+    .then((res) => {
+      if (!res.ok) {
+        throw new Error(`HTTP error! Status: ${res.status}`);
+      }
+      return res.json();
+    })
+    .then((data) => {
+      loadAudio(data);
+      drawLayout(data);
+    })
+    .catch((error) => console.error("Unable to fetch data:", error));
+}
+
+fetchJSONData();
+
+//////////////// GLOBAL VARIABLES ////////////////
+const sceneEl = document.querySelector("a-scene");
+const assetEl = document.querySelector("a-assets");
+const y = 1.6;
+const d1 = 8; 
+const d2 = 8;
+const dp = 6;
+let x0 = 0, z = 0, z0 = 0;
+let sounds;
+let minX = 0, maxX = 0, minZ = 0;
+const margin = 2;
+const proxi = 2;
+let elCount = 0;
+let checkCollide = false;
+let collide = true;
+
+//////////////// LOAD AUDIO ////////////////
+function loadAudio(data) {
+  createAudio(extractAudioFileName(data.Title.audio_path));
+  createAudio(extractAudioFileName(data.Introduction.audio_path));
+  iterateAudio(data.Sections, "Sections_");
+}
+
+//////////////// HELPER FUNCTION TO DECODE UNICODE AND EXTRACT FILE NAME ////////////////
+function extractAudioFileName(path) {
+  return decodeUnicode(path).split("\\").pop();
+}
+
+function decodeUnicode(str) {
+  return str.replace(/\\u[\dA-F]{4}/gi, (match) => 
+    String.fromCharCode(parseInt(match.replace("\\u", ""), 16))
+  );
+}
+
+//////////////// ITERATE THROUGH SECTIONS TO LOAD AUDIO ////////////////
+function iterateAudio(section, prename) {
+  Object.keys(section).forEach((key) => {
+    const name = prename + key.replace(/[: ]/g, "_");
+    createAudio(extractAudioFileName(section[key].audio_path));
+    
+    if (section[key].P?.audio_path) {
+      createAudio(extractAudioFileName(section[key].P.audio_path));
+    }
+    
+    if (section[key].Subsections) {
+      iterateAudio(section[key].Subsections, name + "_Subsections_");
+    }
+  });
+}
+
+//////////////// CREATE AUDIO ELEMENT ////////////////
+function createAudio(name) {
+  const url = `https://cdn.glitch.global/91bb62d6-e769-4965-8bb6-e45f81e52be1/${name}`;
+  const audioEl = document.createElement("audio");
+
+  audioEl.setAttribute("id", name);
+  audioEl.setAttribute("preload", "auto");
+  audioEl.setAttribute("src", url);
+
+  audioEl.onerror = () => {
+    console.error(`Failed to load audio: ${name}`);
+  };
+
+  audioEl.oncanplaythrough = () => {
+    assetEl.appendChild(audioEl);
+  };
+}
+
+//////////////// DRAW LAYOUT ////////////////
+function drawLayout(data) {
+  z = -d1;
+
+  const titleEl = createElement(sceneEl, x0, y, z, "#EF2D5E", "title", "title", data.Title.audio_path);
+  const introEl = createElement(titleEl, x0, 0, z, "#EF2D5E", "intro", "intro", data.Introduction.audio_path);
+  
+  iterateSection(x0, 0, z, d1, data.Sections, introEl, "Sections_", 0);
+  
+  sounds = document.querySelectorAll("a-sphere");
+  document.querySelector("[camera]").setAttribute("check-collide", "");
+  document.querySelector("[camera]").setAttribute("play-proxi", "");
+
+  document.addEventListener("keyup", (event) => {
+    if (event.code === "Space") {
+      checkCollide = false;
+      checkAudio(sounds);
+    }
+  });
+
+  createElement(sceneEl, minX - margin, y, z0 + margin, "#F0FFFF", "sound-cues", "bound", "bound-cue", false);
+  document.querySelector("[camera]").setAttribute("hit-bounds", "");
+}
+
+//////////////// ITERATE THROUGH SECTIONS TO CREATE ELEMENTS ////////////////
+function iterateSection(x, y, z, d, section, parentEl, prename, angle) {
+  const numSections = Object.keys(section).length;
+  const degStep = numSections === 1 ? Math.PI / 2 : Math.PI / (numSections - 1);
+
+  Object.keys(section).forEach((key, i) => {
+    const name = prename + key.replace(/[: ]/g, "_");
+    const headerName = decodeUnicode(section[key].audio_path);
+    
+    const x1 = -d * Math.cos(degStep * i + angle);
+    const z1 = -d / 2 - d * Math.sin(degStep * i + angle);
+
+    const headerEl = createElement(parentEl, x1, y, z1, "#00FFFF", "header", `${key}${i}`, headerName);
+
+    if (section[key].P?.audio_path) {
+      const xp = -dp * Math.cos(degStep * i + angle);
+      const zp = -dp * Math.sin(degStep * i + angle);
+      createElement(headerEl, xp, y, zp, "#FFFF00", "p", `${key}${i}_p`, decodeUnicode(section[key].P.audio_path));
+    }
+
+    if (section[key].Subsections) {
+      iterateSection(x1, y, z1, d2, section[key].Subsections, headerEl, name + "_Subsections_", 0);
+    }
+  });
+}
+
+//////////////// CREATE VISUAL ELEMENTS (SPHERES) ////////////////
+function createElement(parentEl, x, y, z, color, className, id, soundId, autoPlay = true) {
+  const sphereEl = document.createElement("a-sphere");
+  sphereEl.setAttribute("color", color);
+  sphereEl.setAttribute("shader", "flat");
+  sphereEl.setAttribute("radius", "0.5");
+  sphereEl.setAttribute("position", `${x} ${y} ${z}`);
+  sphereEl.setAttribute("class", className);
+  sphereEl.setAttribute("id", id);
+
+  const soundSrc = `src:#${soundId}`;
+  const soundAttributes = `${soundSrc}; autoplay: ${autoPlay}; loop: false; distanceModel: exponential; refDistance: 3; rolloffFactor: 3`;
+
+  sphereEl.setAttribute("sound", soundAttributes);
+  
+  if (autoPlay) {
+    sphereEl.setAttribute("world-pos", "");
+    sphereEl.setAttribute("collide", "");
+  }
+
+  parentEl.appendChild(sphereEl);
+  elCount++;
+
+  return document.getElementById(id);
+}
+
+//////////////// CHECK AND PLAY AUDIO ////////////////
+function checkAudio(audioArray) {
+  if (playing) {
+    audioArray.forEach((s) => s.components.sound.pauseSound());
+    playing = false;
+  } else {
+    audioArray.forEach((s) => s.components.sound.playSound());
+    playing = true;
+  }
+}
+
+//////////////// HIT BOUND AND COLLISION LOGIC ////////////////
+AFRAME.registerComponent("hit-bounds", {
+  tick: function () {
+    const cameraPos = this.el.object3D.position;
+    const bound = document.querySelector("#bound");
+    
+    if (cameraPos.z >= z0 + margin || cameraPos.z <= minZ - margin || cameraPos.x >= maxX + margin || cameraPos.x <= minX - margin) {
+      hitBoundaries(cameraPos, bound);
+    } else {
+      hit = false;
+      bound.components.sound.stopSound();
+    }
+  }
+});
+
+//////////////// HELPER FUNCTION TO HANDLE BOUNDARY HIT ////////////////
+function hitBoundaries(cameraPos, bound) {
+  hit = true;
+  bound.object3D.position.copy(cameraPos);
+  bound.components.sound.playSound();
+  console.log("hit boundary");
+}
+
+AFRAME.registerComponent("collide", {
+  tick: function () {
+    if (collide) {
+      const cameraEl = document.querySelector("[camera]");
+      const camPos = cameraEl.object3D.position;
+      const thisPos = this.el.getObject3D("mesh").position;
+
+      if (distance(camPos, thisPos) < proxi) {
+        this.el.components.sound.playSound();
+        sounds.forEach((s) => {
+          if (s !== this.el) s.components.sound.pauseSound();
+        });
+        checkCollide = true;
+        collide = false;
+      }
+    }
+  }
+});
+
+//////////////// CALCULATE DISTANCE BETWEEN TWO POINTS ////////////////
+function distance(pos1, pos2) {
+  return Math.sqrt((pos1.x - pos2.x) ** 2 + (pos1.z - pos2.z) ** 2);
+}
