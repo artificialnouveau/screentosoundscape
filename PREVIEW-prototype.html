@@ -10,6 +10,48 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Source+Sans+Pro:ital,wght@0,300;0,400;0,700;1,300;1,700&display=swap" rel="stylesheet">
+    <style>
+        .glitch-embed {
+            height: 600px;
+            margin: 40px auto;
+            max-width: 1000px;
+            border-radius: 8px;
+            overflow: hidden;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+        }
+
+        .glitch-embed iframe {
+            height: 100%;
+            width: 100%;
+            border: 0;
+        }
+
+        .audio-player-section {
+            max-width: 800px;
+            margin: 30px auto;
+            padding: 25px;
+            background-color: #f8f8f8;
+            border-radius: 8px;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
+        }
+
+        .audio-player-section h4 {
+            margin-bottom: 15px;
+            color: #333;
+            font-size: 1.1rem;
+        }
+
+        .audio-player-section audio {
+            width: 100%;
+            margin-bottom: 10px;
+        }
+
+        .audio-description {
+            font-size: 0.9rem;
+            color: #666;
+            font-style: italic;
+        }
+    </style>
 </head>
 <body>
     <!-- Mobile Navigation -->
@@ -86,6 +128,16 @@
                     <p><a href="https://github.com/vladimirnani/screen2soundscape" target="_blank" rel="noopener noreferrer">View on GitHub</a></p>
                 </div>
 
+                <!-- Video Demo -->
+                <div class="video-wrapper">
+                    <iframe src="https://www.youtube.com/embed/kGNphqx7eCA"
+                            title="Screen-to-Soundscape Prototype Demo"
+                            frameborder="0"
+                            allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                            allowfullscreen>
+                    </iframe>
+                </div>
+
                 <!-- Operational Model -->
                 <div class="content-block">
                     <h3>Operational Model</h3>
@@ -117,6 +169,15 @@
                     <p><a href="https://screen2soundscape-cocreation1.glitch.me/" target="_blank" rel="noopener noreferrer">Try Prototype 1</a></p>
                 </div>
 
+                <!-- Glitch Embed 1 -->
+                <div class="glitch-embed">
+                    <iframe allow="geolocation; microphone; camera; midi; encrypted-media; xr-spatial-tracking; fullscreen"
+                            allowfullscreen
+                            src="https://glitch.com/embed/#!/embed/screen2soundscape-cocreation1?path=README.md&previewSize=100"
+                            title="screen2soundscape-cocreation1 on Glitch">
+                    </iframe>
+                </div>
+
                 <!-- Feedback from first co-creation -->
                 <div class="content-block">
                     <h3>Feedback from first co-creation</h3>
@@ -136,6 +197,15 @@
                     <p><a href="https://screen2soundscape-cocreation2-soundcues.glitch.me/" target="_blank" rel="noopener noreferrer">Try Prototype 2</a></p>
                 </div>
 
+                <!-- Glitch Embed 2 -->
+                <div class="glitch-embed">
+                    <iframe allow="geolocation; microphone; camera; midi; encrypted-media; xr-spatial-tracking; fullscreen"
+                            allowfullscreen
+                            src="https://glitch.com/embed/#!/embed/screen2soundscape-cocreation2-soundcues?path=README.md&previewSize=100"
+                            title="screen2soundscape-cocreation2-soundcues on Glitch">
+                    </iframe>
+                </div>
+
                 <!-- Feedback from the second co-creation -->
                 <div class="content-block">
                     <h3>Feedback from the second co-creation</h3>
@@ -146,6 +216,52 @@
                 <div class="content-block">
                     <h3>Reflection on the second co-creation</h3>
                     <p>Co-creators valued control over voice characteristics, sound localization, and movement within soundscapes. While exploration appealed to participants, they highlighted difficulties navigating without clear auditory cues and complexity from multiple layered voices.</p>
+                </div>
+
+                <!-- Alt-Text Generation Examples -->
+                <div class="content-block translation">
+                    <h2>Alt-Text Generation Examples</h2>
+                    <p>Using AI-powered image analysis, Screen-to-Soundscape can generate customized alt-text descriptions tailored to different audiences and contexts. Below are examples using Hieronymus Bosch's "The Garden of Earthly Delights":</p>
+                </div>
+
+                <!-- Audio Player 1: Art Curator -->
+                <div class="audio-player-section">
+                    <h4>Garden of Earthly Delights - Custom Alt-Text for Art Curator</h4>
+                    <audio controls>
+                        <source src="https://static1.squarespace.com/static/66f65c05d2542e3def1185bd/t/66f9b29787a3782ec994be69/1727640219263/Garden_ColA.mp3/original/Garden_ColA.mp3" type="audio/mpeg">
+                        Your browser does not support the audio element.
+                    </audio>
+                    <p class="audio-description">Detailed art historical description for an art curator perspective</p>
+                </div>
+
+                <!-- Audio Player 2: Child (Neutral) -->
+                <div class="audio-player-section">
+                    <h4>Garden of Earthly Delights - Custom Alt-Text for a Child</h4>
+                    <audio controls>
+                        <source src="https://static1.squarespace.com/static/66f65c05d2542e3def1185bd/t/66f9b2c9950edc007d3e751d/1727640269212/Garden_ColA_v2.mp3/original/Garden_ColA_v2.mp3" type="audio/mpeg">
+                        Your browser does not support the audio element.
+                    </audio>
+                    <p class="audio-description">Child-friendly description with simpler language</p>
+                </div>
+
+                <!-- Audio Player 3: Child (Upbeat) -->
+                <div class="audio-player-section">
+                    <h4>Garden of Earthly Delights - Custom Alt-Text for a Child (Upbeat tone)</h4>
+                    <audio controls>
+                        <source src="https://static1.squarespace.com/static/66f65c05d2542e3def1185bd/t/66f9b2dc7e9b5d218d791e64/1727640287987/Garden_ColA_v3.mp3/original/Garden_ColA_v3.mp3" type="audio/mpeg">
+                        Your browser does not support the audio element.
+                    </audio>
+                    <p class="audio-description">Child-friendly description with an upbeat, enthusiastic tone</p>
+                </div>
+
+                <!-- Audio Player 4: Child (Upbeat + Soundscape) -->
+                <div class="audio-player-section">
+                    <h4>Garden of Earthly Delights - Custom Alt-Text for a Child (Upbeat tone and Soundscape)</h4>
+                    <audio controls>
+                        <source src="https://static1.squarespace.com/static/66f65c05d2542e3def1185bd/t/66f9b2f8b1c1c31d28869b27/1727640315108/Garden_ColA_v3_Soundscape.mp3/original/Garden_ColA_v3_Soundscape.mp3" type="audio/mpeg">
+                        Your browser does not support the audio element.
+                    </audio>
+                    <p class="audio-description">Child-friendly description with upbeat tone and immersive soundscape</p>
                 </div>
 
                 <!-- Plan for the future co-creation -->
