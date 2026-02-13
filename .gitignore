@@ -36,3 +36,6 @@ Desktop.ini
 
 # Optional: Keep source.html as reference but don't track changes
 # source.html
+
+# Preview HTML files (not for deployment)
+PREVIEW-*.html
