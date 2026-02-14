@@ -422,13 +422,7 @@ class AudioProximityController {
     if (now - this.lastUpdate < this.updateInterval) return;
     this.lastUpdate = now;
 
-    // PRIORITY 1: If currently speaking, keep display visible and update position
-    if (this.isSpeaking && this.currentSpeaking) {
-      this.updateFloatingTextPosition(this.currentSpeaking.element);
-      return; // Don't switch to new elements while speaking
-    }
-
-    // PRIORITY 2: Find closest element to mouse (only when not speaking)
+    // Find closest element to mouse
     let closestElement = null;
     let closestDistance = Infinity;
 
@@ -448,9 +442,9 @@ class AudioProximityController {
       }
     });
 
-    // PRIORITY 3: Handle element changes (only when not speaking)
+    // Handle element changes
     if (closestElement && closestElement !== this.currentSpeaking) {
-      // New element in range - start speaking
+      // New element in range - interrupt current speech and start new one
       const timeSinceLastSpeak = now - this.lastSpeakTime;
       if (timeSinceLastSpeak > this.speakDebounce || !this.currentSpeaking) {
         const volume = this.calculateVolume(closestDistance);
@@ -460,12 +454,21 @@ class AudioProximityController {
         this.lastSpeakTime = now;
       }
     } else if (!closestElement && this.currentSpeaking) {
-      // No element in range - clear display
-      this.fadeOutElement(this.currentSpeaking.element);
-      this.currentSpeaking = null;
+      // No element in range
+      if (this.isSpeaking) {
+        // Still speaking - keep display visible and follow cursor
+        this.updateFloatingTextPosition(this.currentSpeaking.element);
+      } else {
+        // Not speaking - clear display
+        this.fadeOutElement(this.currentSpeaking.element);
+        this.currentSpeaking = null;
+      }
     } else if (closestElement && closestElement === this.currentSpeaking) {
-      // Same element - update position
+      // Same element - keep display visible and update position
       this.updateFloatingTextPosition(closestElement.element);
+    } else if (!closestElement && !this.currentSpeaking && this.isSpeaking) {
+      // Edge case: speech is playing but no current element - keep display visible
+      this.updateFloatingTextPosition(null);
     }
   }
 
