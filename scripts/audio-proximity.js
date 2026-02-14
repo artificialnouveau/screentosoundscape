@@ -17,6 +17,7 @@ class AudioProximityController {
     this.lastUpdate = 0;
     this.lastSpeakTime = 0;
     this.speakDebounce = 300; // ms - prevent rapid switching
+    this.isSpeaking = false; // Track if speech is active
 
     // Speech synthesis
     this.synth = window.speechSynthesis;
@@ -445,27 +446,24 @@ class AudioProximityController {
     const timeSinceLastSpeak = now - this.lastSpeakTime;
 
     if (closestElement && closestElement !== this.currentSpeaking) {
-      // Only switch if enough time has passed (prevents rapid switching)
-      if (timeSinceLastSpeak > this.speakDebounce || !this.currentSpeaking) {
-        // Remove highlight from previous element
-        if (this.currentSpeaking) {
-          this.fadeOutElement(this.currentSpeaking.element);
-        }
-
+      // Only switch if enough time has passed AND not currently speaking
+      if ((timeSinceLastSpeak > this.speakDebounce || !this.currentSpeaking) && !this.isSpeaking) {
         const volume = this.calculateVolume(closestDistance);
         this.speak(closestElement.text, volume);
         this.fadeInElement(closestElement.element, closestDistance);
         this.currentSpeaking = closestElement;
         this.lastSpeakTime = now;
       }
-    } else if (!closestElement && this.currentSpeaking) {
-      // No element in range, stop speaking
+    } else if (!closestElement && this.currentSpeaking && !this.isSpeaking) {
+      // No element in range and not speaking, clear display
       this.fadeOutElement(this.currentSpeaking.element);
-      this.stopSpeech();
       this.currentSpeaking = null;
     } else if (closestElement && closestElement === this.currentSpeaking) {
-      // Same element, just update position smoothly
+      // Same element, keep display visible and update position
       this.updateFloatingTextPosition(closestElement.element);
+    } else if (this.isSpeaking && this.currentSpeaking) {
+      // Still speaking, keep display visible and update position
+      this.updateFloatingTextPosition(this.currentSpeaking.element);
     }
   }
 
@@ -513,6 +511,16 @@ class AudioProximityController {
       this.currentUtterance.lang = 'en-US';
     }
 
+    // Keep visual display visible until speech ends
+    this.isSpeaking = true;
+    this.currentUtterance.onend = () => {
+      this.isSpeaking = false;
+      // Only hide display if no new speech has started
+      if (!this.synth.speaking && this.floatingDisplay) {
+        this.fadeOutElement(null);
+      }
+    };
+
     // Speak
     this.synth.speak(this.currentUtterance);
   }
@@ -527,6 +535,7 @@ class AudioProximityController {
   stopSpeech() {
     this.synth.cancel();
     this.currentUtterance = null;
+    this.isSpeaking = false;
   }
 
   fadeInElement(element, distance) {
@@ -572,7 +581,13 @@ class AudioProximityController {
   }
 
   updateFloatingTextPosition(element) {
-    if (!this.floatingDisplay || this.floatingDisplay.style.opacity === '0') return;
+    if (!this.floatingDisplay) return;
+
+    // Keep display visible while speaking
+    if (this.floatingDisplay.style.display === 'none' && this.isSpeaking) {
+      this.floatingDisplay.style.display = 'block';
+      this.floatingDisplay.style.opacity = '1';
+    }
 
     // Update position to follow mouse smoothly
     const offsetX = 20;
