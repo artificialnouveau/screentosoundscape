@@ -24,9 +24,52 @@ class AudioProximityController {
   }
 
   init() {
+    this.injectStyles();
     this.createToggleButtons();
     this.collectElements();
     this.setupEventListeners();
+  }
+
+  injectStyles() {
+    // Add CSS for fade in/out effect
+    const style = document.createElement('style');
+    style.textContent = `
+      .audio-proximity-speaking {
+        position: relative;
+        z-index: 9999;
+        animation: audioProximityFadeIn 0.5s ease-in-out;
+        color: white !important;
+        text-shadow: 0 0 20px rgba(255, 255, 255, 0.8), 0 0 40px rgba(255, 255, 255, 0.5);
+        opacity: 1 !important;
+      }
+
+      .audio-proximity-fading-out {
+        animation: audioProximityFadeOut 0.5s ease-in-out;
+      }
+
+      @keyframes audioProximityFadeIn {
+        0% {
+          opacity: 0;
+          text-shadow: 0 0 0px rgba(255, 255, 255, 0);
+        }
+        100% {
+          opacity: 1;
+          text-shadow: 0 0 20px rgba(255, 255, 255, 0.8), 0 0 40px rgba(255, 255, 255, 0.5);
+        }
+      }
+
+      @keyframes audioProximityFadeOut {
+        0% {
+          opacity: 1;
+          text-shadow: 0 0 20px rgba(255, 255, 255, 0.8), 0 0 40px rgba(255, 255, 255, 0.5);
+        }
+        100% {
+          opacity: 0;
+          text-shadow: 0 0 0px rgba(255, 255, 255, 0);
+        }
+      }
+    `;
+    document.head.appendChild(style);
   }
 
   createToggleButtons() {
@@ -204,8 +247,15 @@ class AudioProximityController {
       this.overlay = null;
     }
 
+    // Remove highlight from current element
+    if (this.currentSpeaking) {
+      this.currentSpeaking.element.classList.remove('audio-proximity-speaking');
+      this.currentSpeaking.element.classList.remove('audio-proximity-fading-out');
+    }
+
     // Stop any ongoing speech
     this.stopSpeech();
+    this.currentSpeaking = null;
 
     console.log('Audio mode disabled');
   }
@@ -254,11 +304,18 @@ class AudioProximityController {
 
     // Speak the closest element
     if (closestElement && closestElement !== this.currentSpeaking) {
+      // Remove highlight from previous element
+      if (this.currentSpeaking) {
+        this.fadeOutElement(this.currentSpeaking.element);
+      }
+
       const volume = this.calculateVolume(closestDistance);
       this.speak(closestElement.text, volume);
+      this.fadeInElement(closestElement.element);
       this.currentSpeaking = closestElement;
     } else if (!closestElement && this.currentSpeaking) {
       // No element in range, stop speaking
+      this.fadeOutElement(this.currentSpeaking.element);
       this.stopSpeech();
       this.currentSpeaking = null;
     } else if (closestElement && closestElement === this.currentSpeaking) {
@@ -304,6 +361,24 @@ class AudioProximityController {
   stopSpeech() {
     this.synth.cancel();
     this.currentUtterance = null;
+  }
+
+  fadeInElement(element) {
+    // Remove any existing fade classes
+    element.classList.remove('audio-proximity-fading-out');
+    // Add fade in class
+    element.classList.add('audio-proximity-speaking');
+  }
+
+  fadeOutElement(element) {
+    // Add fade out class
+    element.classList.add('audio-proximity-fading-out');
+
+    // Remove all classes after animation completes
+    setTimeout(() => {
+      element.classList.remove('audio-proximity-speaking');
+      element.classList.remove('audio-proximity-fading-out');
+    }, 500); // Match animation duration
   }
 }
 
