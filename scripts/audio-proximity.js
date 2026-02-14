@@ -257,6 +257,30 @@ class AudioProximityController {
     `;
     document.body.appendChild(this.overlay);
 
+    // Create floating text display (above overlay)
+    this.floatingText = document.createElement('div');
+    this.floatingText.id = 'audio-proximity-floating-text';
+    this.floatingText.style.cssText = `
+      position: fixed;
+      z-index: 9999;
+      color: white;
+      font-size: 18px;
+      font-weight: bold;
+      padding: 10px 15px;
+      background-color: rgba(0, 0, 0, 0.8);
+      border-radius: 8px;
+      text-shadow: 0 0 20px rgba(255, 255, 255, 0.9),
+                   0 0 40px rgba(255, 255, 255, 0.6),
+                   0 0 60px rgba(255, 255, 255, 0.3);
+      box-shadow: 0 0 30px rgba(255, 255, 255, 0.5);
+      max-width: 600px;
+      pointer-events: none;
+      opacity: 0;
+      transition: opacity 0.3s ease-in-out;
+      display: none;
+    `;
+    document.body.appendChild(this.floatingText);
+
     // Ensure control buttons stay visible
     document.getElementById('audio-proximity-controls').style.zIndex = '10000';
 
@@ -277,6 +301,12 @@ class AudioProximityController {
     if (this.overlay) {
       this.overlay.remove();
       this.overlay = null;
+    }
+
+    // Remove floating text
+    if (this.floatingText) {
+      this.floatingText.remove();
+      this.floatingText = null;
     }
 
     // Remove highlight from current element
@@ -396,21 +426,38 @@ class AudioProximityController {
   }
 
   fadeInElement(element) {
-    // Remove any existing fade classes
-    element.classList.remove('audio-proximity-fading-out');
-    // Add fade in class
-    element.classList.add('audio-proximity-speaking');
+    if (!this.floatingText) return;
+
+    // Get element position
+    const rect = element.getBoundingClientRect();
+
+    // Position floating text at element location
+    this.floatingText.style.left = `${rect.left}px`;
+    this.floatingText.style.top = `${rect.top}px`;
+
+    // Set text content
+    const text = element.textContent.trim();
+    this.floatingText.textContent = text.substring(0, 200); // Limit length
+
+    // Show floating text
+    this.floatingText.style.display = 'block';
+    // Force reflow
+    this.floatingText.offsetHeight;
+    this.floatingText.style.opacity = '1';
   }
 
   fadeOutElement(element) {
-    // Add fade out class
-    element.classList.add('audio-proximity-fading-out');
+    if (!this.floatingText) return;
 
-    // Remove all classes after animation completes
+    // Hide floating text
+    this.floatingText.style.opacity = '0';
+
+    // Hide after transition
     setTimeout(() => {
-      element.classList.remove('audio-proximity-speaking');
-      element.classList.remove('audio-proximity-fading-out');
-    }, 500); // Match animation duration
+      if (this.floatingText) {
+        this.floatingText.style.display = 'none';
+      }
+    }, 300);
   }
 }
 
