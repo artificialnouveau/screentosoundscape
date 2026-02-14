@@ -316,12 +316,33 @@ class AudioProximityController {
     this.floatingDisplay.style.cssText = `
       position: fixed;
       z-index: 9999;
-      pointer-events: none;
+      pointer-events: auto;
       opacity: 0;
       transition: opacity 0.3s ease-in-out, left 0.15s ease-out, top 0.15s ease-out;
       display: none;
       transform-origin: center center;
+      cursor: default;
     `;
+
+    // Click handler to forward clicks to original element
+    this.floatingDisplay.addEventListener('click', (e) => {
+      if (this.currentSpeaking && this.currentSpeaking.element) {
+        const originalElement = this.currentSpeaking.element;
+
+        // If it's a link or button, click it
+        if (originalElement.tagName === 'A' || originalElement.tagName === 'BUTTON') {
+          e.preventDefault();
+          originalElement.click();
+        } else {
+          // Check if element contains a link
+          const link = originalElement.querySelector('a');
+          if (link) {
+            e.preventDefault();
+            link.click();
+          }
+        }
+      }
+    });
 
     this.floatingText = document.createElement('div');
     this.floatingText.style.cssText = `
@@ -555,6 +576,15 @@ class AudioProximityController {
     this.floatingDisplay.style.left = `${this.mouseX + offsetX}px`;
     this.floatingDisplay.style.top = `${this.mouseY + offsetY}px`;
 
+    // Check if element is clickable
+    const isClickable = element.tagName === 'A' ||
+                        element.tagName === 'BUTTON' ||
+                        element.querySelector('a') !== null ||
+                        element.querySelector('button') !== null;
+
+    // Set cursor style
+    this.floatingDisplay.style.cursor = isClickable ? 'pointer' : 'default';
+
     if (item.type === 'image' && item.imageSrc) {
       // Show image
       this.floatingImage.src = item.imageSrc;
@@ -565,6 +595,11 @@ class AudioProximityController {
       const text = element.textContent.trim();
       const displayText = text.length > 400 ? text.substring(0, 400) + '...' : text;
       this.floatingText.textContent = displayText;
+
+      // Add click indicator for clickable elements
+      if (isClickable) {
+        this.floatingText.textContent = '🔗 ' + displayText;
+      }
 
       // Adjust font size based on element type
       if (element.tagName && element.tagName.match(/^H[1-6]$/)) {
