@@ -179,71 +179,62 @@ class AudioProximityController {
   }
 
   collectElements() {
-    // Collect all text elements and images more comprehensively
+    // Collect ALL text elements and images - be maximally comprehensive
     this.elements = [];
     const collected = new Set();
 
-    // Get headers first (highest priority)
-    const headers = document.querySelectorAll('h1, h2, h3, h4, h5, h6');
-    headers.forEach(el => {
-      const text = el.textContent.trim();
-      if (text && !this.isControlElement(el) && text.length > 0) {
-        this.elements.push({
-          element: el,
-          text: text,
-          type: 'header',
-          bounds: null
-        });
-        collected.add(el);
-      }
-    });
+    // Function to check if element is visible
+    const isVisible = (el) => {
+      const style = window.getComputedStyle(el);
+      return style.display !== 'none' &&
+             style.visibility !== 'hidden' &&
+             style.opacity !== '0';
+    };
 
-    // Get all text-bearing elements more aggressively
-    const allElements = document.querySelectorAll('p, li, td, th, blockquote, figcaption, a, button, label, div, span, section, article, strong, em');
+    // Get ALL elements in the document
+    const allElements = document.body.querySelectorAll('*');
 
     allElements.forEach(el => {
-      if (collected.has(el) || this.isControlElement(el)) return;
+      // Skip if control element or already collected
+      if (this.isControlElement(el) || collected.has(el)) return;
+      if (!isVisible(el)) return;
 
       const text = el.textContent.trim();
+      if (!text || text.length < 3) return;
 
-      // Skip if inside a collected element
+      // Check if this element has ANY text nodes (direct children)
+      const hasOwnText = Array.from(el.childNodes).some(node =>
+        node.nodeType === Node.TEXT_NODE && node.textContent.trim().length > 0
+      );
+
+      if (!hasOwnText) return;
+
+      // Check if nested in already collected element
       const isNested = Array.from(collected).some(collectedEl =>
-        collectedEl.contains(el) && collectedEl !== el
+        collectedEl !== el && collectedEl.contains(el)
       );
 
       if (isNested) return;
 
-      // For all elements, check if they have meaningful text
-      if (text && text.length > 5) {
-        // Check if this element's children are already collected
-        const childrenCollected = Array.from(el.children).every(child =>
-          collected.has(child)
-        );
+      // Collect this element
+      const elementType = el.tagName.match(/^H[1-6]$/) ? 'header' : 'text';
+      this.elements.push({
+        element: el,
+        text: text,
+        type: elementType,
+        bounds: null
+      });
+      collected.add(el);
 
-        // Get own text (not from children)
-        const ownText = Array.from(el.childNodes)
-          .filter(node => node.nodeType === Node.TEXT_NODE)
-          .map(node => node.textContent.trim())
-          .join(' ')
-          .trim();
-
-        // Collect if has own text OR if it's a semantic container with uncollected children
-        if (ownText.length > 5 || (!childrenCollected && ['DIV', 'SECTION', 'ARTICLE'].includes(el.tagName))) {
-          this.elements.push({
-            element: el,
-            text: text,
-            type: 'text',
-            bounds: null
-          });
-          collected.add(el);
-        }
-      }
+      // Mark all descendants as collected to avoid duplicates
+      const descendants = el.querySelectorAll('*');
+      descendants.forEach(desc => collected.add(desc));
     });
 
-    // Get all images with alt text (high priority for display)
+    // Get all images with alt text (separate pass)
     const images = document.querySelectorAll('img');
     images.forEach(img => {
-      if (!this.isControlElement(img)) {
+      if (!this.isControlElement(img) && isVisible(img)) {
         const alt = img.alt || img.title || 'Image';
         this.elements.push({
           element: img,
