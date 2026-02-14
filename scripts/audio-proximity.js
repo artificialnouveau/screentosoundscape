@@ -181,49 +181,81 @@ class AudioProximityController {
   collectElements() {
     // Collect all text elements and images
     this.elements = [];
+    const collected = new Set(); // Prevent duplicates
 
     // Get headers first (prioritize them)
     const headers = document.querySelectorAll('h1, h2, h3, h4, h5, h6');
     headers.forEach(el => {
       const text = el.textContent.trim();
-      if (text && !this.isControlElement(el)) {
+      if (text && !this.isControlElement(el) && text.length > 0) {
         this.elements.push({
           element: el,
           text: text,
           type: 'header',
           bounds: null
         });
+        collected.add(el);
       }
     });
 
-    // Get other text-containing elements
-    const textSelectors = 'p, li, td, th, blockquote, figcaption, a, button, label';
+    // Get paragraphs and common text containers
+    const textSelectors = 'p, li, td, th, blockquote, figcaption, a, button, label, div.content-block, div.hero-caption, div.audio-caption';
     const textElements = document.querySelectorAll(textSelectors);
 
     textElements.forEach(el => {
+      // Skip if already collected or is/contains a collected element
+      if (collected.has(el)) return;
+
       const text = el.textContent.trim();
-      // Skip if this element is inside a header (already collected)
-      const isInHeader = el.closest('h1, h2, h3, h4, h5, h6') !== null;
-      if (text && !this.isControlElement(el) && !isInHeader) {
-        this.elements.push({
-          element: el,
-          text: text,
-          type: 'text',
-          bounds: null
-        });
+
+      // Skip if this element is inside a header or another collected element
+      const isInCollected = Array.from(collected).some(collectedEl =>
+        collectedEl.contains(el) && collectedEl !== el
+      );
+
+      // Only collect if has substantial text and not nested in another collected element
+      if (text && text.length > 10 && !this.isControlElement(el) && !isInCollected) {
+        // Check if element has direct text (not just from children)
+        const hasDirectText = Array.from(el.childNodes).some(node =>
+          node.nodeType === Node.TEXT_NODE && node.textContent.trim().length > 0
+        );
+
+        // For div elements, only collect if they have direct text or are specific classes
+        if (el.tagName === 'DIV') {
+          if (hasDirectText || el.classList.contains('content-block') ||
+              el.classList.contains('hero-caption') || el.classList.contains('audio-caption')) {
+            this.elements.push({
+              element: el,
+              text: text,
+              type: 'text',
+              bounds: null
+            });
+            collected.add(el);
+          }
+        } else {
+          this.elements.push({
+            element: el,
+            text: text,
+            type: 'text',
+            bounds: null
+          });
+          collected.add(el);
+        }
       }
     });
 
     // Get all images with alt text
     const images = document.querySelectorAll('img');
     images.forEach(img => {
-      const alt = img.alt || 'Image';
-      this.elements.push({
-        element: img,
-        text: `Image: ${alt}`,
-        type: 'image',
-        bounds: null
-      });
+      if (!this.isControlElement(img)) {
+        const alt = img.alt || 'Image';
+        this.elements.push({
+          element: img,
+          text: `Image: ${alt}`,
+          type: 'image',
+          bounds: null
+        });
+      }
     });
 
     console.log(`Collected ${this.elements.length} elements for audio proximity`);
@@ -424,6 +456,14 @@ class AudioProximityController {
     return Math.max(this.minVolume, Math.min(this.maxVolume, normalized));
   }
 
+  detectLanguage(text) {
+    // Simple French detection - check for common French words/characters
+    const frenchIndicators = /\b(le|la|les|un|une|des|et|est|dans|pour|avec|que|qui|sur|par|plus|comme|mais|ou|où|cette|sont|été|être|avoir|nous|vous|ils|elles|français|française)\b/i;
+    const frenchChars = /[àâäæçéèêëïîôùûüÿœ]/i;
+
+    return frenchIndicators.test(text) || frenchChars.test(text);
+  }
+
   speak(text, volume = 1) {
     // Stop current speech
     this.stopSpeech();
@@ -433,6 +473,20 @@ class AudioProximityController {
     this.currentUtterance.volume = volume;
     this.currentUtterance.rate = 1.0;
     this.currentUtterance.pitch = 1.0;
+
+    // Detect language and set appropriate voice
+    const isFrench = this.detectLanguage(text);
+    if (isFrench) {
+      this.currentUtterance.lang = 'fr-FR';
+      // Try to find a French voice
+      const voices = this.synth.getVoices();
+      const frenchVoice = voices.find(voice => voice.lang.startsWith('fr'));
+      if (frenchVoice) {
+        this.currentUtterance.voice = frenchVoice;
+      }
+    } else {
+      this.currentUtterance.lang = 'en-US';
+    }
 
     // Speak
     this.synth.speak(this.currentUtterance);
