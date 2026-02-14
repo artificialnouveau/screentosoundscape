@@ -179,11 +179,11 @@ class AudioProximityController {
   }
 
   collectElements() {
-    // Collect all text elements and images
+    // Collect all text elements and images more comprehensively
     this.elements = [];
-    const collected = new Set(); // Prevent duplicates
+    const collected = new Set();
 
-    // Get headers first (prioritize them)
+    // Get headers first (highest priority)
     const headers = document.querySelectorAll('h1, h2, h3, h4, h5, h6');
     headers.forEach(el => {
       const text = el.textContent.trim();
@@ -198,41 +198,37 @@ class AudioProximityController {
       }
     });
 
-    // Get paragraphs and common text containers
-    const textSelectors = 'p, li, td, th, blockquote, figcaption, a, button, label, div.content-block, div.hero-caption, div.audio-caption';
-    const textElements = document.querySelectorAll(textSelectors);
+    // Get all text-bearing elements more aggressively
+    const allElements = document.querySelectorAll('p, li, td, th, blockquote, figcaption, a, button, label, div, span, section, article, strong, em');
 
-    textElements.forEach(el => {
-      // Skip if already collected or is/contains a collected element
-      if (collected.has(el)) return;
+    allElements.forEach(el => {
+      if (collected.has(el) || this.isControlElement(el)) return;
 
       const text = el.textContent.trim();
 
-      // Skip if this element is inside a header or another collected element
-      const isInCollected = Array.from(collected).some(collectedEl =>
+      // Skip if inside a collected element
+      const isNested = Array.from(collected).some(collectedEl =>
         collectedEl.contains(el) && collectedEl !== el
       );
 
-      // Only collect if has substantial text and not nested in another collected element
-      if (text && text.length > 10 && !this.isControlElement(el) && !isInCollected) {
-        // Check if element has direct text (not just from children)
-        const hasDirectText = Array.from(el.childNodes).some(node =>
-          node.nodeType === Node.TEXT_NODE && node.textContent.trim().length > 0
+      if (isNested) return;
+
+      // For all elements, check if they have meaningful text
+      if (text && text.length > 5) {
+        // Check if this element's children are already collected
+        const childrenCollected = Array.from(el.children).every(child =>
+          collected.has(child)
         );
 
-        // For div elements, only collect if they have direct text or are specific classes
-        if (el.tagName === 'DIV') {
-          if (hasDirectText || el.classList.contains('content-block') ||
-              el.classList.contains('hero-caption') || el.classList.contains('audio-caption')) {
-            this.elements.push({
-              element: el,
-              text: text,
-              type: 'text',
-              bounds: null
-            });
-            collected.add(el);
-          }
-        } else {
+        // Get own text (not from children)
+        const ownText = Array.from(el.childNodes)
+          .filter(node => node.nodeType === Node.TEXT_NODE)
+          .map(node => node.textContent.trim())
+          .join(' ')
+          .trim();
+
+        // Collect if has own text OR if it's a semantic container with uncollected children
+        if (ownText.length > 5 || (!childrenCollected && ['DIV', 'SECTION', 'ARTICLE'].includes(el.tagName))) {
           this.elements.push({
             element: el,
             text: text,
@@ -244,16 +240,17 @@ class AudioProximityController {
       }
     });
 
-    // Get all images with alt text
+    // Get all images with alt text (high priority for display)
     const images = document.querySelectorAll('img');
     images.forEach(img => {
       if (!this.isControlElement(img)) {
-        const alt = img.alt || 'Image';
+        const alt = img.alt || img.title || 'Image';
         this.elements.push({
           element: img,
           text: `Image: ${alt}`,
           type: 'image',
-          bounds: null
+          bounds: null,
+          imageSrc: img.src
         });
       }
     });
@@ -276,6 +273,20 @@ class AudioProximityController {
       this.mouseX = e.clientX;
       this.mouseY = e.clientY;
     });
+
+    // Update element bounds on scroll
+    document.addEventListener('scroll', () => {
+      if (this.isAudioMode) {
+        this.updateElementBounds();
+      }
+    }, { passive: true });
+
+    // Update element bounds on window resize
+    window.addEventListener('resize', () => {
+      if (this.isAudioMode) {
+        this.updateElementBounds();
+      }
+    }, { passive: true });
 
     // Update proximity audio
     setInterval(() => {
@@ -307,31 +318,52 @@ class AudioProximityController {
     `;
     document.body.appendChild(this.overlay);
 
-    // Create floating text display (above overlay)
-    this.floatingText = document.createElement('div');
-    this.floatingText.id = 'audio-proximity-floating-text';
-    this.floatingText.style.cssText = `
+    // Create floating display (above overlay) - can show text or images
+    this.floatingDisplay = document.createElement('div');
+    this.floatingDisplay.id = 'audio-proximity-floating-display';
+    this.floatingDisplay.style.cssText = `
       position: fixed;
       z-index: 9999;
+      pointer-events: none;
+      opacity: 0;
+      transition: opacity 0.3s ease-in-out;
+      display: none;
+      transform-origin: center center;
+    `;
+
+    this.floatingText = document.createElement('div');
+    this.floatingText.style.cssText = `
       color: white;
       font-size: 20px;
       font-weight: bold;
-      padding: 12px 20px;
-      background-color: rgba(0, 0, 0, 0.9);
-      border-radius: 8px;
+      padding: 15px 25px;
+      background-color: rgba(0, 0, 0, 0.95);
+      border-radius: 10px;
       text-shadow: 0 0 20px rgba(255, 255, 255, 0.9),
                    0 0 40px rgba(255, 255, 255, 0.6),
                    0 0 60px rgba(255, 255, 255, 0.3);
-      box-shadow: 0 0 40px rgba(255, 255, 255, 0.6);
-      max-width: 80%;
-      pointer-events: none;
-      opacity: 0;
-      transition: opacity 0.4s ease-in-out, transform 0.3s ease-out;
-      transform: scale(0.95);
-      display: none;
-      line-height: 1.4;
+      box-shadow: 0 0 50px rgba(255, 255, 255, 0.7),
+                  inset 0 0 20px rgba(255, 255, 255, 0.1);
+      max-width: 600px;
+      line-height: 1.5;
+      white-space: pre-wrap;
+      word-wrap: break-word;
     `;
-    document.body.appendChild(this.floatingText);
+
+    this.floatingImage = document.createElement('img');
+    this.floatingImage.style.cssText = `
+      max-width: 500px;
+      max-height: 400px;
+      border-radius: 10px;
+      box-shadow: 0 0 60px rgba(255, 255, 255, 0.9),
+                  0 0 100px rgba(255, 255, 255, 0.5);
+      filter: brightness(1.2) drop-shadow(0 0 30px rgba(255, 255, 255, 0.9));
+      display: none;
+    `;
+
+    this.floatingDisplay.appendChild(this.floatingText);
+    this.floatingDisplay.appendChild(this.floatingImage);
+    document.body.appendChild(this.floatingDisplay);
 
     // Ensure control buttons stay visible
     document.getElementById('audio-proximity-controls').style.zIndex = '10000';
@@ -355,10 +387,12 @@ class AudioProximityController {
       this.overlay = null;
     }
 
-    // Remove floating text
-    if (this.floatingText) {
-      this.floatingText.remove();
+    // Remove floating display
+    if (this.floatingDisplay) {
+      this.floatingDisplay.remove();
+      this.floatingDisplay = null;
       this.floatingText = null;
+      this.floatingImage = null;
     }
 
     // Remove highlight from current element
@@ -505,59 +539,70 @@ class AudioProximityController {
   }
 
   fadeInElement(element, distance) {
-    if (!this.floatingText) return;
+    if (!this.floatingDisplay || !this.floatingText || !this.floatingImage) return;
 
-    // Get element position
-    const rect = element.getBoundingClientRect();
+    const item = this.elements.find(el => el.element === element);
+    if (!item) return;
 
-    // Position floating text at element location
-    this.floatingText.style.left = `${rect.left}px`;
-    this.floatingText.style.top = `${rect.top}px`;
+    // Position near mouse cursor (more stable than element position)
+    const offsetX = 20;
+    const offsetY = 20;
+    this.floatingDisplay.style.left = `${this.mouseX + offsetX}px`;
+    this.floatingDisplay.style.top = `${this.mouseY + offsetY}px`;
 
-    // Set text content with better formatting
-    const text = element.textContent.trim();
-    const displayText = text.length > 300 ? text.substring(0, 300) + '...' : text;
-    this.floatingText.textContent = displayText;
-
-    // Adjust font size based on element type
-    if (element.tagName && element.tagName.match(/^H[1-6]$/)) {
-      this.floatingText.style.fontSize = '24px';
-      this.floatingText.style.fontWeight = '900';
+    if (item.type === 'image' && item.imageSrc) {
+      // Show image
+      this.floatingImage.src = item.imageSrc;
+      this.floatingImage.style.display = 'block';
+      this.floatingText.style.display = 'none';
     } else {
-      this.floatingText.style.fontSize = '18px';
-      this.floatingText.style.fontWeight = 'bold';
+      // Show text
+      const text = element.textContent.trim();
+      const displayText = text.length > 400 ? text.substring(0, 400) + '...' : text;
+      this.floatingText.textContent = displayText;
+
+      // Adjust font size based on element type
+      if (element.tagName && element.tagName.match(/^H[1-6]$/)) {
+        this.floatingText.style.fontSize = '28px';
+        this.floatingText.style.fontWeight = '900';
+      } else {
+        this.floatingText.style.fontSize = '20px';
+        this.floatingText.style.fontWeight = 'bold';
+      }
+
+      this.floatingText.style.display = 'block';
+      this.floatingImage.style.display = 'none';
     }
 
-    // Show floating text with smooth animation
-    this.floatingText.style.display = 'block';
-    // Force reflow
-    this.floatingText.offsetHeight;
-    this.floatingText.style.opacity = '1';
-    this.floatingText.style.transform = 'scale(1)';
+    // Show floating display
+    this.floatingDisplay.style.display = 'block';
+    this.floatingDisplay.offsetHeight; // Force reflow
+    this.floatingDisplay.style.opacity = '1';
   }
 
   updateFloatingTextPosition(element) {
-    if (!this.floatingText || this.floatingText.style.opacity === '0') return;
+    if (!this.floatingDisplay || this.floatingDisplay.style.opacity === '0') return;
 
-    // Smoothly update position if element moved
-    const rect = element.getBoundingClientRect();
-    this.floatingText.style.left = `${rect.left}px`;
-    this.floatingText.style.top = `${rect.top}px`;
+    // Update position to follow mouse smoothly
+    const offsetX = 20;
+    const offsetY = 20;
+    this.floatingDisplay.style.left = `${this.mouseX + offsetX}px`;
+    this.floatingDisplay.style.top = `${this.mouseY + offsetY}px`;
   }
 
   fadeOutElement(element) {
-    if (!this.floatingText) return;
+    if (!this.floatingDisplay) return;
 
-    // Hide floating text with smooth animation
-    this.floatingText.style.opacity = '0';
-    this.floatingText.style.transform = 'scale(0.95)';
+    // Hide floating display
+    this.floatingDisplay.style.opacity = '0';
 
-    // Hide after transition
     setTimeout(() => {
-      if (this.floatingText) {
-        this.floatingText.style.display = 'none';
+      if (this.floatingDisplay) {
+        this.floatingDisplay.style.display = 'none';
+        if (this.floatingImage) this.floatingImage.style.display = 'none';
+        if (this.floatingText) this.floatingText.style.display = 'none';
       }
-    }, 400);
+    }, 300);
   }
 }
 
