@@ -318,7 +318,7 @@ class AudioProximityController {
       z-index: 9999;
       pointer-events: none;
       opacity: 0;
-      transition: opacity 0.3s ease-in-out;
+      transition: opacity 0.3s ease-in-out, left 0.15s ease-out, top 0.15s ease-out;
       display: none;
       transform-origin: center center;
     `;
@@ -422,7 +422,13 @@ class AudioProximityController {
     if (now - this.lastUpdate < this.updateInterval) return;
     this.lastUpdate = now;
 
-    // Find closest element to mouse
+    // PRIORITY 1: If currently speaking, keep display visible and update position
+    if (this.isSpeaking && this.currentSpeaking) {
+      this.updateFloatingTextPosition(this.currentSpeaking.element);
+      return; // Don't switch to new elements while speaking
+    }
+
+    // PRIORITY 2: Find closest element to mouse (only when not speaking)
     let closestElement = null;
     let closestDistance = Infinity;
 
@@ -442,28 +448,24 @@ class AudioProximityController {
       }
     });
 
-    // Speak the closest element (with debouncing for smoother transitions)
-    const timeSinceLastSpeak = now - this.lastSpeakTime;
-
+    // PRIORITY 3: Handle element changes (only when not speaking)
     if (closestElement && closestElement !== this.currentSpeaking) {
-      // Only switch if enough time has passed AND not currently speaking
-      if ((timeSinceLastSpeak > this.speakDebounce || !this.currentSpeaking) && !this.isSpeaking) {
+      // New element in range - start speaking
+      const timeSinceLastSpeak = now - this.lastSpeakTime;
+      if (timeSinceLastSpeak > this.speakDebounce || !this.currentSpeaking) {
         const volume = this.calculateVolume(closestDistance);
         this.speak(closestElement.text, volume);
         this.fadeInElement(closestElement.element, closestDistance);
         this.currentSpeaking = closestElement;
         this.lastSpeakTime = now;
       }
-    } else if (!closestElement && this.currentSpeaking && !this.isSpeaking) {
-      // No element in range and not speaking, clear display
+    } else if (!closestElement && this.currentSpeaking) {
+      // No element in range - clear display
       this.fadeOutElement(this.currentSpeaking.element);
       this.currentSpeaking = null;
     } else if (closestElement && closestElement === this.currentSpeaking) {
-      // Same element, keep display visible and update position
+      // Same element - update position
       this.updateFloatingTextPosition(closestElement.element);
-    } else if (this.isSpeaking && this.currentSpeaking) {
-      // Still speaking, keep display visible and update position
-      this.updateFloatingTextPosition(this.currentSpeaking.element);
     }
   }
 
@@ -583,17 +585,23 @@ class AudioProximityController {
   updateFloatingTextPosition(element) {
     if (!this.floatingDisplay) return;
 
-    // Keep display visible while speaking
-    if (this.floatingDisplay.style.display === 'none' && this.isSpeaking) {
+    // Ensure display is visible
+    if (this.floatingDisplay.style.display === 'none') {
       this.floatingDisplay.style.display = 'block';
+    }
+    if (this.floatingDisplay.style.opacity !== '1') {
       this.floatingDisplay.style.opacity = '1';
     }
 
-    // Update position to follow mouse smoothly
-    const offsetX = 20;
-    const offsetY = 20;
-    this.floatingDisplay.style.left = `${this.mouseX + offsetX}px`;
-    this.floatingDisplay.style.top = `${this.mouseY + offsetY}px`;
+    // Update position to follow mouse cursor smoothly
+    const offsetX = 30;
+    const offsetY = 30;
+    const newLeft = this.mouseX + offsetX;
+    const newTop = this.mouseY + offsetY;
+
+    // Smooth position update using CSS transition
+    this.floatingDisplay.style.left = `${newLeft}px`;
+    this.floatingDisplay.style.top = `${newTop}px`;
   }
 
   fadeOutElement(element) {
