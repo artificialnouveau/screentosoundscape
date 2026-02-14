@@ -13,8 +13,10 @@ class AudioProximityController {
     this.proximityThreshold = 600; // pixels - max distance for audio
     this.minVolume = 0;
     this.maxVolume = 1;
-    this.updateInterval = 100; // ms
+    this.updateInterval = 150; // ms - increased for smoother performance
     this.lastUpdate = 0;
+    this.lastSpeakTime = 0;
+    this.speakDebounce = 300; // ms - prevent rapid switching
 
     // Speech synthesis
     this.synth = window.speechSynthesis;
@@ -180,13 +182,29 @@ class AudioProximityController {
     // Collect all text elements and images
     this.elements = [];
 
-    // Get all text-containing elements
-    const textSelectors = 'p, h1, h2, h3, h4, h5, h6, li, td, th, blockquote, figcaption, span, a, button, label';
+    // Get headers first (prioritize them)
+    const headers = document.querySelectorAll('h1, h2, h3, h4, h5, h6');
+    headers.forEach(el => {
+      const text = el.textContent.trim();
+      if (text && !this.isControlElement(el)) {
+        this.elements.push({
+          element: el,
+          text: text,
+          type: 'header',
+          bounds: null
+        });
+      }
+    });
+
+    // Get other text-containing elements
+    const textSelectors = 'p, li, td, th, blockquote, figcaption, a, button, label';
     const textElements = document.querySelectorAll(textSelectors);
 
     textElements.forEach(el => {
       const text = el.textContent.trim();
-      if (text && !this.isControlElement(el)) {
+      // Skip if this element is inside a header (already collected)
+      const isInHeader = el.closest('h1, h2, h3, h4, h5, h6') !== null;
+      if (text && !this.isControlElement(el) && !isInHeader) {
         this.elements.push({
           element: el,
           text: text,
@@ -264,20 +282,22 @@ class AudioProximityController {
       position: fixed;
       z-index: 9999;
       color: white;
-      font-size: 18px;
+      font-size: 20px;
       font-weight: bold;
-      padding: 10px 15px;
-      background-color: rgba(0, 0, 0, 0.8);
+      padding: 12px 20px;
+      background-color: rgba(0, 0, 0, 0.9);
       border-radius: 8px;
       text-shadow: 0 0 20px rgba(255, 255, 255, 0.9),
                    0 0 40px rgba(255, 255, 255, 0.6),
                    0 0 60px rgba(255, 255, 255, 0.3);
-      box-shadow: 0 0 30px rgba(255, 255, 255, 0.5);
-      max-width: 600px;
+      box-shadow: 0 0 40px rgba(255, 255, 255, 0.6);
+      max-width: 80%;
       pointer-events: none;
       opacity: 0;
-      transition: opacity 0.3s ease-in-out;
+      transition: opacity 0.4s ease-in-out, transform 0.3s ease-out;
+      transform: scale(0.95);
       display: none;
+      line-height: 1.4;
     `;
     document.body.appendChild(this.floatingText);
 
@@ -364,26 +384,31 @@ class AudioProximityController {
       }
     });
 
-    // Speak the closest element
-    if (closestElement && closestElement !== this.currentSpeaking) {
-      // Remove highlight from previous element
-      if (this.currentSpeaking) {
-        this.fadeOutElement(this.currentSpeaking.element);
-      }
+    // Speak the closest element (with debouncing for smoother transitions)
+    const timeSinceLastSpeak = now - this.lastSpeakTime;
 
-      const volume = this.calculateVolume(closestDistance);
-      this.speak(closestElement.text, volume);
-      this.fadeInElement(closestElement.element);
-      this.currentSpeaking = closestElement;
+    if (closestElement && closestElement !== this.currentSpeaking) {
+      // Only switch if enough time has passed (prevents rapid switching)
+      if (timeSinceLastSpeak > this.speakDebounce || !this.currentSpeaking) {
+        // Remove highlight from previous element
+        if (this.currentSpeaking) {
+          this.fadeOutElement(this.currentSpeaking.element);
+        }
+
+        const volume = this.calculateVolume(closestDistance);
+        this.speak(closestElement.text, volume);
+        this.fadeInElement(closestElement.element, closestDistance);
+        this.currentSpeaking = closestElement;
+        this.lastSpeakTime = now;
+      }
     } else if (!closestElement && this.currentSpeaking) {
       // No element in range, stop speaking
       this.fadeOutElement(this.currentSpeaking.element);
       this.stopSpeech();
       this.currentSpeaking = null;
     } else if (closestElement && closestElement === this.currentSpeaking) {
-      // Same element, update volume
-      const volume = this.calculateVolume(closestDistance);
-      this.updateVolume(volume);
+      // Same element, just update position smoothly
+      this.updateFloatingTextPosition(closestElement.element);
     }
   }
 
@@ -425,7 +450,7 @@ class AudioProximityController {
     this.currentUtterance = null;
   }
 
-  fadeInElement(element) {
+  fadeInElement(element, distance) {
     if (!this.floatingText) return;
 
     // Get element position
@@ -435,29 +460,50 @@ class AudioProximityController {
     this.floatingText.style.left = `${rect.left}px`;
     this.floatingText.style.top = `${rect.top}px`;
 
-    // Set text content
+    // Set text content with better formatting
     const text = element.textContent.trim();
-    this.floatingText.textContent = text.substring(0, 200); // Limit length
+    const displayText = text.length > 300 ? text.substring(0, 300) + '...' : text;
+    this.floatingText.textContent = displayText;
 
-    // Show floating text
+    // Adjust font size based on element type
+    if (element.tagName && element.tagName.match(/^H[1-6]$/)) {
+      this.floatingText.style.fontSize = '24px';
+      this.floatingText.style.fontWeight = '900';
+    } else {
+      this.floatingText.style.fontSize = '18px';
+      this.floatingText.style.fontWeight = 'bold';
+    }
+
+    // Show floating text with smooth animation
     this.floatingText.style.display = 'block';
     // Force reflow
     this.floatingText.offsetHeight;
     this.floatingText.style.opacity = '1';
+    this.floatingText.style.transform = 'scale(1)';
+  }
+
+  updateFloatingTextPosition(element) {
+    if (!this.floatingText || this.floatingText.style.opacity === '0') return;
+
+    // Smoothly update position if element moved
+    const rect = element.getBoundingClientRect();
+    this.floatingText.style.left = `${rect.left}px`;
+    this.floatingText.style.top = `${rect.top}px`;
   }
 
   fadeOutElement(element) {
     if (!this.floatingText) return;
 
-    // Hide floating text
+    // Hide floating text with smooth animation
     this.floatingText.style.opacity = '0';
+    this.floatingText.style.transform = 'scale(0.95)';
 
     // Hide after transition
     setTimeout(() => {
       if (this.floatingText) {
         this.floatingText.style.display = 'none';
       }
-    }, 300);
+    }, 400);
   }
 }
 
