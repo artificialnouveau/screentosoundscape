@@ -10,7 +10,7 @@ class AudioProximityController {
     this.mouseY = 0;
     this.elements = [];
     this.currentSpeaking = null;
-    this.proximityThreshold = 600; // pixels - max distance for audio
+    this.proximityThreshold = 350; // pixels - max distance for audio
     this.minVolume = 0;
     this.maxVolume = 1;
     this.updateInterval = 150; // ms - increased for smoother performance
