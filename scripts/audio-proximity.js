@@ -23,14 +23,173 @@ class AudioProximityController {
     this.synth = window.speechSynthesis;
     this.currentUtterance = null;
 
+    // Web Audio API for spatial audio
+    this.audioContext = null;
+    this.masterGain = null;
+    this.currentTone = null;
+    this.elementPitches = new Map(); // Store unique pitch for each element
+
     this.init();
   }
 
   init() {
     this.injectStyles();
     this.createToggleButtons();
+    this.setupAudioContext();
     this.collectElements();
     this.setupEventListeners();
+  }
+
+  setupAudioContext() {
+    // Initialize Web Audio API for spatial audio
+    this.audioContext = new (window.AudioContext || window.webkitAudioContext)();
+
+    // Master gain for volume control
+    this.masterGain = this.audioContext.createGain();
+    this.masterGain.gain.value = 0.3; // Lower volume for subtle effect
+    this.masterGain.connect(this.audioContext.destination);
+  }
+
+  getElementPitch(element) {
+    // Assign unique pitch to each element (cache it)
+    if (!this.elementPitches.has(element)) {
+      // Generate pitch based on element position in DOM
+      // Range: 200Hz to 800Hz
+      const allElements = Array.from(document.querySelectorAll('*'));
+      const index = allElements.indexOf(element);
+      const normalizedIndex = (index % 50) / 50; // Cycle every 50 elements
+      const pitch = 200 + (normalizedIndex * 600);
+      this.elementPitches.set(element, pitch);
+    }
+    return this.elementPitches.get(element);
+  }
+
+  createSpatialTone(element, distance) {
+    // Stop any existing tone
+    this.stopSpatialTone();
+
+    if (!this.audioContext || !element) return;
+
+    // Resume audio context if suspended (browser autoplay policy)
+    if (this.audioContext.state === 'suspended') {
+      this.audioContext.resume();
+    }
+
+    // Get element's position on screen
+    const rect = element.getBoundingClientRect();
+    const centerX = rect.left + rect.width / 2;
+    const centerY = rect.top + rect.height / 2;
+
+    // Map screen position to 3D space
+    // X: left (-5) to right (+5)
+    // Y: top (+5, distant) to bottom (-5, close)
+    // Z: always behind listener (-2)
+    const screenWidth = window.innerWidth;
+    const screenHeight = window.innerHeight;
+
+    const x = ((centerX / screenWidth) - 0.5) * 10; // -5 to +5
+    const y = (0.5 - (centerY / screenHeight)) * 10; // +5 (top) to -5 (bottom)
+    const z = -2; // Behind listener
+
+    // Create oscillators: sine + triangle
+    const frequency = this.getElementPitch(element);
+
+    // Sine oscillator
+    const sineOsc = this.audioContext.createOscillator();
+    sineOsc.type = 'sine';
+    sineOsc.frequency.value = frequency;
+
+    // Triangle oscillator (adds richness)
+    const triangleOsc = this.audioContext.createOscillator();
+    triangleOsc.type = 'triangle';
+    triangleOsc.frequency.value = frequency * 1.5; // Fifth above
+
+    // Create gain nodes for mixing
+    const sineGain = this.audioContext.createGain();
+    sineGain.gain.value = 0.5;
+
+    const triangleGain = this.audioContext.createGain();
+    triangleGain.gain.value = 0.3;
+
+    // Create HRTF panner for 3D spatial audio
+    const panner = this.audioContext.createPanner();
+    panner.panningModel = 'HRTF'; // Head-Related Transfer Function
+    panner.distanceModel = 'inverse';
+    panner.refDistance = 1;
+    panner.maxDistance = 10000;
+    panner.rolloffFactor = 1;
+    panner.coneInnerAngle = 360;
+    panner.coneOuterAngle = 0;
+    panner.coneOuterGain = 0;
+
+    // Set 3D position
+    panner.positionX.value = x;
+    panner.positionY.value = y;
+    panner.positionZ.value = z;
+
+    // Set listener position (at origin, facing forward)
+    const listener = this.audioContext.listener;
+    if (listener.positionX) {
+      listener.positionX.value = 0;
+      listener.positionY.value = 0;
+      listener.positionZ.value = 0;
+      listener.forwardX.value = 0;
+      listener.forwardY.value = 0;
+      listener.forwardZ.value = -1;
+      listener.upX.value = 0;
+      listener.upY.value = 1;
+      listener.upZ.value = 0;
+    }
+
+    // Volume based on distance (closer = louder)
+    const volumeMultiplier = Math.max(0.1, 1 - (distance / this.proximityThreshold));
+    const envelopeGain = this.audioContext.createGain();
+    envelopeGain.gain.value = 0;
+
+    // Connect audio graph
+    sineOsc.connect(sineGain);
+    triangleOsc.connect(triangleGain);
+    sineGain.connect(envelopeGain);
+    triangleGain.connect(envelopeGain);
+    envelopeGain.connect(panner);
+    panner.connect(this.masterGain);
+
+    // Envelope: fade in
+    const now = this.audioContext.currentTime;
+    envelopeGain.gain.setValueAtTime(0, now);
+    envelopeGain.gain.linearRampToValueAtTime(volumeMultiplier, now + 0.1);
+
+    // Start oscillators
+    sineOsc.start(now);
+    triangleOsc.start(now);
+
+    // Store references for cleanup
+    this.currentTone = {
+      sineOsc,
+      triangleOsc,
+      envelopeGain,
+      panner
+    };
+  }
+
+  stopSpatialTone() {
+    if (!this.currentTone) return;
+
+    const now = this.audioContext.currentTime;
+
+    // Fade out
+    this.currentTone.envelopeGain.gain.cancelScheduledValues(now);
+    this.currentTone.envelopeGain.gain.setValueAtTime(
+      this.currentTone.envelopeGain.gain.value,
+      now
+    );
+    this.currentTone.envelopeGain.gain.linearRampToValueAtTime(0, now + 0.05);
+
+    // Stop oscillators after fade
+    this.currentTone.sineOsc.stop(now + 0.05);
+    this.currentTone.triangleOsc.stop(now + 0.05);
+
+    this.currentTone = null;
   }
 
   injectStyles() {
@@ -414,8 +573,9 @@ class AudioProximityController {
       this.currentSpeaking.element.classList.remove('audio-proximity-fading-out');
     }
 
-    // Stop any ongoing speech
+    // Stop any ongoing speech and spatial audio
     this.stopSpeech();
+    this.stopSpatialTone();
     this.currentSpeaking = null;
 
     console.log('Audio mode disabled');
@@ -469,6 +629,11 @@ class AudioProximityController {
       const timeSinceLastSpeak = now - this.lastSpeakTime;
       if (timeSinceLastSpeak > this.speakDebounce || !this.currentSpeaking) {
         const volume = this.calculateVolume(closestDistance);
+
+        // Play spatial tone first
+        this.createSpatialTone(closestElement.element, closestDistance);
+
+        // Then speak
         this.speak(closestElement.text, volume);
         this.fadeInElement(closestElement.element, closestDistance);
         this.currentSpeaking = closestElement;
