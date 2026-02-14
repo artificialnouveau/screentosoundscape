@@ -34,38 +34,70 @@ class AudioProximityController {
     // Add CSS for fade in/out effect
     const style = document.createElement('style');
     style.textContent = `
+      #audio-mode-overlay {
+        pointer-events: none !important;
+      }
+
       .audio-proximity-speaking {
-        position: relative;
-        z-index: 9999;
-        animation: audioProximityFadeIn 0.5s ease-in-out;
+        position: relative !important;
+        z-index: 9999 !important;
+        animation: audioProximityFadeIn 0.5s ease-in-out forwards;
         color: white !important;
-        text-shadow: 0 0 20px rgba(255, 255, 255, 0.8), 0 0 40px rgba(255, 255, 255, 0.5);
-        opacity: 1 !important;
+        background-color: rgba(0, 0, 0, 0.8) !important;
+        padding: 2px 4px !important;
+        border-radius: 3px !important;
+        text-shadow: 0 0 20px rgba(255, 255, 255, 0.9),
+                     0 0 40px rgba(255, 255, 255, 0.6),
+                     0 0 60px rgba(255, 255, 255, 0.3) !important;
+        box-shadow: 0 0 30px rgba(255, 255, 255, 0.5) !important;
+      }
+
+      .audio-proximity-speaking * {
+        color: white !important;
+        text-shadow: inherit !important;
+      }
+
+      img.audio-proximity-speaking {
+        background-color: transparent !important;
+        box-shadow: 0 0 40px rgba(255, 255, 255, 0.8) !important;
+        filter: drop-shadow(0 0 20px rgba(255, 255, 255, 0.9)) !important;
       }
 
       .audio-proximity-fading-out {
-        animation: audioProximityFadeOut 0.5s ease-in-out;
+        animation: audioProximityFadeOut 0.5s ease-in-out forwards;
       }
 
       @keyframes audioProximityFadeIn {
         0% {
           opacity: 0;
+          transform: scale(0.95);
           text-shadow: 0 0 0px rgba(255, 255, 255, 0);
+          box-shadow: 0 0 0px rgba(255, 255, 255, 0);
         }
         100% {
           opacity: 1;
-          text-shadow: 0 0 20px rgba(255, 255, 255, 0.8), 0 0 40px rgba(255, 255, 255, 0.5);
+          transform: scale(1);
+          text-shadow: 0 0 20px rgba(255, 255, 255, 0.9),
+                       0 0 40px rgba(255, 255, 255, 0.6),
+                       0 0 60px rgba(255, 255, 255, 0.3);
+          box-shadow: 0 0 30px rgba(255, 255, 255, 0.5);
         }
       }
 
       @keyframes audioProximityFadeOut {
         0% {
           opacity: 1;
-          text-shadow: 0 0 20px rgba(255, 255, 255, 0.8), 0 0 40px rgba(255, 255, 255, 0.5);
+          transform: scale(1);
+          text-shadow: 0 0 20px rgba(255, 255, 255, 0.9),
+                       0 0 40px rgba(255, 255, 255, 0.6),
+                       0 0 60px rgba(255, 255, 255, 0.3);
+          box-shadow: 0 0 30px rgba(255, 255, 255, 0.5);
         }
         100% {
           opacity: 0;
+          transform: scale(0.95);
           text-shadow: 0 0 0px rgba(255, 255, 255, 0);
+          box-shadow: 0 0 0px rgba(255, 255, 255, 0);
         }
       }
     `;
