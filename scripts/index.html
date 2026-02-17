@@ -4,7 +4,7 @@
     <script src="layout.js" defer></script>
   </head>
   <body>
-    <!-- Welcome audio plays on landing, before user starts -->
+    <!-- Welcome audio - played after user clicks to start -->
     <audio id="welcome-audio" preload="auto" src="./audio/welcome.mp3"></audio>
 
     <a-scene>
@@ -15,6 +15,7 @@
           src="./audio/bound.mp3"
         ></audio>
       </a-assets>
+      <!--   add cursor     -->
       <a-camera>
         <a-entity
           id="camera"
@@ -25,6 +26,8 @@
         >
         </a-entity>
       </a-camera>
+
+      <!--   ground & sky    -->
       <a-plane
         id="floor"
         position="0 0 0"

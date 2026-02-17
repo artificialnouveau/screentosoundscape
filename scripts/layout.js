@@ -1,4 +1,4 @@
-// Global variables
+// Global variables - keep them here but don't assign DOM elements yet
 let sceneEl, assetEl, sounds;
 const y = 1.6;
 const d1 = 8;
@@ -16,7 +16,7 @@ let elCount = 0;
 let checkCollide = false;
 let collide = true;
 
-window.addEventListener("DOMContentLoaded", () => {
+window.addEventListener("DOMContentLoaded", (event) => {
   sceneEl = document.querySelector("a-scene");
   assetEl = document.querySelector("a-assets");
   showStartOverlay();
@@ -37,23 +37,17 @@ function showStartOverlay() {
     "</div>";
   document.body.appendChild(overlay);
 
-  // Play welcome message audio if available
-  const welcomeAudio = document.getElementById("welcome-audio");
-  if (welcomeAudio) {
-    welcomeAudio.play().catch(() => {});
-  }
-
   function startApp() {
     overlay.remove();
 
-    // Stop welcome audio if still playing
+    // Play welcome audio on user gesture (so it works in all browsers)
+    const welcomeAudio = document.getElementById("welcome-audio");
     if (welcomeAudio) {
-      welcomeAudio.pause();
-      welcomeAudio.currentTime = 0;
+      welcomeAudio.play().catch(() => {});
     }
 
-    // Resume every AudioContext we can find (critical for Firefox)
-    resumeAllAudioContexts();
+    // Resume AudioContext (needed for both Chrome and Firefox)
+    resumeAudio();
 
     fetchJSONData();
   }
@@ -62,78 +56,24 @@ function showStartOverlay() {
   document.addEventListener("keydown", startApp, { once: true });
 }
 
-//////////////// AUDIO CONTEXT FIX (Firefox) ////////////////
-// Firefox suspends AudioContexts created before user gesture.
-// This function finds and resumes all relevant contexts.
-function resumeAllAudioContexts() {
-  // 1. THREE's shared AudioContext (used by A-Frame internally)
-  if (typeof THREE !== "undefined" && THREE.AudioContext) {
-    const ctx = THREE.AudioContext.getContext();
-    if (ctx && ctx.state === "suspended") {
-      ctx.resume().then(() => console.log("THREE AudioContext resumed"));
-    }
-  }
-
-  // 2. A-Frame scene's audioListener context
-  const scene = document.querySelector("a-scene");
-  if (scene && scene.audioListener && scene.audioListener.context) {
-    const ctx = scene.audioListener.context;
-    if (ctx.state === "suspended") {
-      ctx.resume().then(() => console.log("A-Frame AudioContext resumed"));
-    }
-  }
-
-  // 3. Keep retrying for a few seconds in case A-Frame hasn't fully initialized
-  let retries = 0;
-  const retryInterval = setInterval(() => {
-    retries++;
-    let allRunning = true;
-
+// Resume all audio contexts we can find
+function resumeAudio() {
+  try {
     if (typeof THREE !== "undefined" && THREE.AudioContext) {
-      const ctx = THREE.AudioContext.getContext();
-      if (ctx && ctx.state === "suspended") {
-        ctx.resume();
-        allRunning = false;
-      }
+      var ctx = THREE.AudioContext.getContext();
+      if (ctx.state === "suspended") ctx.resume();
     }
+  } catch (e) {}
 
-    const s = document.querySelector("a-scene");
-    if (s && s.audioListener && s.audioListener.context) {
-      if (s.audioListener.context.state === "suspended") {
-        s.audioListener.context.resume();
-        allRunning = false;
+  try {
+    var scene = document.querySelector("a-scene");
+    if (scene && scene.audioListener && scene.audioListener.context) {
+      if (scene.audioListener.context.state === "suspended") {
+        scene.audioListener.context.resume();
       }
     }
-
-    if (allRunning || retries > 20) {
-      clearInterval(retryInterval);
-      if (retries > 20) {
-        console.warn("AudioContext may still be suspended after retries");
-      }
-    }
-  }, 250);
+  } catch (e) {}
 }
-
-// Patch A-Frame sound component: resume AudioContext before every playSound call
-// This is the most reliable Firefox fix — it ensures the context is running
-// at the exact moment sound playback is attempted.
-AFRAME.registerComponent("sound-context-fix", {
-  init: function () {
-    const soundComp = this.el.components.sound;
-    if (!soundComp) return;
-
-    const originalPlay = soundComp.playSound.bind(soundComp);
-    soundComp.playSound = function () {
-      if (this.pool && this.pool.children && this.pool.children.length > 0) {
-        const ctx = this.pool.children[0].context;
-        if (ctx && ctx.state === "suspended") {
-          ctx.resume();
-        }
-      }
-      return originalPlay();
-    };
-  },
-});
 
 function fetchJSONData() {
   fetch("./en_wiki_Galaxy_with_audio.json")
@@ -147,93 +87,86 @@ function fetchJSONData() {
 
 //////////////// LOAD AUDIO ////////////////
 function loadAudio(data) {
-  const audioPromises = [];
-
-  audioPromises.push(
-    createAudio(data.Title.audio_path.replace("mp3s\\", "").replace(".mp3", ""))
+  // Create all audio elements
+  createAudio(data.Title.audio_path.replace("mp3s\\", "").replace(".mp3", ""));
+  createAudio(
+    data.Introduction.audio_path.replace("mp3s\\", "").replace(".mp3", ""),
   );
-  audioPromises.push(
-    createAudio(
-      data.Introduction.audio_path.replace("mp3s\\", "").replace(".mp3", "")
-    )
-  );
-  collectAudioPromises(data.Sections, "Sections_", audioPromises);
+  iterateAudio(data.Sections, "Sections_");
 
-  const timeoutPromise = new Promise((resolve) => setTimeout(resolve, 5000));
-  Promise.race([Promise.all(audioPromises), timeoutPromise])
-    .then(() => {
-      console.log("Audio loaded, building scene...");
-      drawLayout(data);
-    })
-    .catch((err) => {
-      console.warn("Some audio failed to load, building scene anyway:", err);
-      drawLayout(data);
-    });
+  // Give the browser a tiny moment to "see" the new audio tags before building the VR spheres
+  setTimeout(() => {
+    drawLayout(data);
+  }, 100);
 }
 
-function collectAudioPromises(section, prename, promises) {
+function iterateAudio(section, prename) {
   for (const key in section) {
     const name = prename + key.replace(":", "").replaceAll(" ", "_");
-    promises.push(
-      createAudio(
-        section[key].audio_path.replace("mp3s\\", "").replace(".mp3", "")
-      )
+    createAudio(
+      section[key].audio_path.replace("mp3s\\", "").replace(".mp3", ""),
     );
 
     if (section[key].P && section[key].P.audio_path !== "") {
-      promises.push(
-        createAudio(
-          section[key].P.audio_path.replace("mp3s\\", "").replace(".mp3", "")
-        )
+      createAudio(
+        section[key].P.audio_path.replace("mp3s\\", "").replace(".mp3", ""),
       );
     }
     if (section[key].Subsections) {
-      collectAudioPromises(section[key].Subsections, name + "_Subsections_", promises);
+      iterateAudio(section[key].Subsections, name + "_Subsections_");
     }
   }
 }
 
 function createAudio(name) {
-  if (!name) return Promise.resolve();
+  if (!name) return;
+  const audioEl = document.createElement("audio");
+  // Use backticks for template literal
+  let url = `./audio/${name}.mp3`;
 
-  return new Promise((resolve) => {
-    const audioEl = document.createElement("audio");
-    const url = `./audio/${name}.mp3`;
-
-    audioEl.setAttribute("id", name);
-    audioEl.setAttribute("preload", "auto");
-    audioEl.setAttribute("src", url);
-
-    audioEl.addEventListener("canplaythrough", () => resolve(), { once: true });
-    audioEl.addEventListener(
-      "error",
-      (e) => {
-        console.warn(`Failed to load audio: ${url}`, e);
-        resolve();
-      },
-      { once: true }
-    );
-
-    assetEl.appendChild(audioEl);
-    setTimeout(resolve, 4000);
-  });
+  audioEl.setAttribute("id", name);
+  audioEl.setAttribute("preload", "auto");
+  audioEl.setAttribute("src", url);
+  assetEl.appendChild(audioEl);
 }
 
 //////////////// DRAW LAYOUT ///////////////////
 function drawLayout(data) {
   z = -d1;
   const titleEl = createElement(
-    sceneEl, x0, y, z, "#EF2D5E", "title", "title",
-    data.Title.audio_path.replace("mp3s\\", "").replace(".mp3", ""), true,
+    sceneEl,
+    x0,
+    y,
+    z,
+    "#EF2D5E",
+    "title",
+    "title",
+    data.Title.audio_path.replace("mp3s\\", "").replace(".mp3", ""),
+    true,
   );
   const introEl = createElement(
-    titleEl, x0, 0, z, "#EF2D5E", "intro", "intro",
-    data.Introduction.audio_path.replace("mp3s\\", "").replace(".mp3", ""), true,
+    titleEl,
+    x0,
+    0,
+    z,
+    "#EF2D5E",
+    "intro",
+    "intro",
+    data.Introduction.audio_path.replace("mp3s\\", "").replace(".mp3", ""),
+    true,
   );
 
+  // Boundary sound
   createElement(
-    sceneEl, minX - margin, y, z0 + margin, "#F0FFFF", "sound-cues", "bound",
-    "bound-cue", false,
+    sceneEl,
+    minX - margin,
+    y,
+    z0 + margin,
+    "#F0FFFF",
+    "sound-cues",
+    "bound",
+    "bound-cue",
+    false,
   );
 
   iterateSection(x0, 0, z, d1, data.Sections, introEl, "Sections_", 0);
@@ -241,6 +174,7 @@ function drawLayout(data) {
   sounds = document.querySelectorAll("a-sphere");
   document.querySelector("[camera]").setAttribute("play-proxi", "");
 
+  // Spacebar control
   document.addEventListener("keyup", (event) => {
     if (event.code === "Space") {
       checkCollide = false;
@@ -253,13 +187,9 @@ function drawLayout(data) {
   });
 
   document.querySelector("[camera]").setAttribute("hit-bounds", "");
-
-  // Apply the sound-context-fix to all spheres with sound (Firefox fix)
-  sounds.forEach((s) => {
-    s.setAttribute("sound-context-fix", "");
-  });
 }
 
+// Recursively iterates through sections, creating header and paragraph elements
 function iterateSection(x, y, z, d, section, parentEl, prename, angle) {
   const numSections = Object.keys(section).length;
   const degStep = numSections === 1 ? Math.PI / 2 : Math.PI / (numSections - 1);
@@ -270,32 +200,68 @@ function iterateSection(x, y, z, d, section, parentEl, prename, angle) {
       .replace("mp3s\\", "")
       .replace(".mp3", "");
 
+    // Calculate position for the section
     const x1 = -d * Math.cos(degStep * i + angle);
     const z1 = -d / 2 - d * Math.sin(degStep * i + angle);
 
+    // Create header element (blue)
     const headerEl = createElement(
-      parentEl, x1, y, z1, "#00FFFF", "header", `${key}${i}`, headerName, true,
+      parentEl,
+      x1,
+      y,
+      z1,
+      "#00FFFF",
+      "header",
+      `${key}${i}`,
+      headerName,
+      true,
     );
 
+    // If paragraph exists, create it (yellow)
     if (section[key].P) {
       const xp = -dp * Math.cos(degStep * i + angle);
       const zp = -dp * Math.sin(degStep * i + angle);
       createElement(
-        headerEl, xp, y, zp, "#FFFF00", "p", `${key}${i}_p`,
-        section[key].P.audio_path.replace("mp3s\\", "").replace(".mp3", ""), true,
+        headerEl,
+        xp,
+        y,
+        zp,
+        "#FFFF00",
+        "p",
+        `${key}${i}_p`,
+        section[key].P.audio_path.replace("mp3s\\", "").replace(".mp3", ""),
+        true,
       );
     }
 
+    // Recursively handle subsections
     if (section[key].Subsections) {
       iterateSection(
-        x1, y, z1, d2, section[key].Subsections, headerEl,
-        name + "_Subsections_", 0,
+        x1,
+        y,
+        z1,
+        d2,
+        section[key].Subsections,
+        headerEl,
+        name + "_Subsections_",
+        0,
       );
     }
   });
 }
 
-function createElement(parentEl, x, y, z, color, className, id, soundId, autoPlay) {
+// Helper function to create a visual element (sphere) in the scene
+function createElement(
+  parentEl,
+  x,
+  y,
+  z,
+  color,
+  className,
+  id,
+  soundId,
+  autoPlay,
+) {
   const sphereEl = document.createElement("a-sphere");
   sphereEl.setAttribute("color", color);
   sphereEl.setAttribute("shader", "flat");
@@ -304,6 +270,7 @@ function createElement(parentEl, x, y, z, color, className, id, soundId, autoPla
   sphereEl.setAttribute("class", className);
   sphereEl.setAttribute("id", id);
 
+  // Added poolSize: 10 to fix the "All sounds are playing" warning
   const soundSrc = `src:#${soundId}`;
   sphereEl.setAttribute(
     "sound",
@@ -347,6 +314,7 @@ AFRAME.registerComponent("world-pos", {
   },
   update: function () {
     this.el.getObject3D("mesh").getWorldPosition(this.worldpos);
+    // console.log(this.worldpos);
     if (this.worldpos.x < 0) {
       if (this.worldpos.x < minX) {
         minX = this.worldpos.x;
@@ -356,6 +324,7 @@ AFRAME.registerComponent("world-pos", {
         maxX = this.worldpos.x;
       }
     }
+
     if (this.worldpos.z < minZ) {
       minZ = this.worldpos.z;
     }
@@ -370,7 +339,9 @@ AFRAME.registerComponent("hit-bounds", {
     const bound = document.querySelector("#bound");
     let elX = this.el.object3D.position.x;
     let elZ = this.el.object3D.position.z;
+    // console.log(elX);
     let hitBound;
+    // limit Z
     if (
       this.el.object3D.position.z > z0 + margin ||
       this.el.object3D.position.z == z0 + margin
@@ -382,6 +353,7 @@ AFRAME.registerComponent("hit-bounds", {
       if (!hit) {
         hit = true;
         bound.components.sound.playSound();
+        // console.log("hit" + this.el.object3D.position.z);
       }
       document.addEventListener("keydown", (event) => {
         if (event.code === "ArrowDown") {
@@ -396,6 +368,7 @@ AFRAME.registerComponent("hit-bounds", {
     ) {
       this.el.object3D.position.z = minZ - margin;
       hitBound = minZ - margin - 0.5;
+      // console.log("MINZ: " + minZ);
       bound.object3D.position.x = elX;
       bound.object3D.position.z = hitBound;
       if (!hit) {
@@ -410,6 +383,7 @@ AFRAME.registerComponent("hit-bounds", {
         }
       });
     }
+    // limit X
     if (
       this.el.object3D.position.x > maxX + margin ||
       this.el.object3D.position.x == maxX + margin
@@ -471,11 +445,13 @@ AFRAME.registerComponent("collide", {
   },
   tick: function () {
     if (collide) {
+      // const cameraEl = this.el.sceneEl.camera.el;
       const cameraEl = document.querySelector("[camera]");
       let camX = cameraEl.object3D.position.x;
       let camZ = cameraEl.object3D.position.z;
       this.el.getObject3D("mesh").getWorldPosition(this.worldpos);
       if (distance(camX, camZ, this.worldpos.x, this.worldpos.z) < proxi) {
+        // console.log(this.el);
         checkCollide = true;
         collide = false;
         this.el.components.sound.playSound();
@@ -498,8 +474,10 @@ AFRAME.registerComponent("check-collide", {
       let elX = this.el.object3D.position.x;
       let elZ = this.el.object3D.position.z;
       let colStatus = false;
+      // console.log(checkCollide);
       sounds.forEach((s) => {
         s.getObject3D("mesh").getWorldPosition(worldpos);
+        // console.log(worldpos)
         if (distance(elX, elZ, worldpos.x, worldpos.z) < proxi) {
           colStatus = true;
         }
@@ -528,26 +506,35 @@ AFRAME.registerComponent("play-proxi", {
     let closeDist = 100;
 
     document.addEventListener("keyup", (event) => {
+      // console.log(event.code)
       if (event.code === "ShiftLeft") {
         checkCollide = false;
         sounds.forEach((s) => {
           s.getObject3D("mesh").getWorldPosition(worldpos);
+          // console.log(worldpos)
           if (distance(elX, elZ, worldpos.x, worldpos.z) < closeDist) {
             closeDist = distance(elX, elZ, worldpos.x, worldpos.z);
             proxiEl = s;
           }
         });
+        // proxiEl.components.sound.stopSound();
         sounds.forEach((s) => {
           if (s != proxiEl) {
             s.components.sound.pauseSound();
           }
         });
         proxiEl.components.sound.playSound();
+        // console.log(proxiEl);
       }
     });
   },
 });
 
+// Helper function to calculate distance between two points (x1, z1) and (x2, z2)
 function distance(x1, z1, x2, z2) {
   return Math.sqrt(Math.pow(x1 - x2, 2) + Math.pow(z1 - z2, 2));
 }
+
+// Resume AudioContext on any click/key (handles both Chrome and Firefox autoplay policy)
+document.addEventListener("click", resumeAudio);
+document.addEventListener("keydown", resumeAudio);
