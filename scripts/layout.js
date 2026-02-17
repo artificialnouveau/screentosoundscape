@@ -17,6 +17,8 @@ let checkCollide = false;
 let collide = true;
 
 window.addEventListener("DOMContentLoaded", () => {
+  sceneEl = document.querySelector("a-scene");
+  assetEl = document.querySelector("a-assets");
   showStartOverlay();
 });
 
@@ -50,55 +52,88 @@ function showStartOverlay() {
       welcomeAudio.currentTime = 0;
     }
 
-    // Create the A-Frame scene NOW, inside the user gesture callback.
-    // This ensures Firefox creates the AudioContext in "running" state.
-    createScene();
+    // Resume every AudioContext we can find (critical for Firefox)
+    resumeAllAudioContexts();
+
+    fetchJSONData();
   }
 
   overlay.addEventListener("click", startApp, { once: true });
   document.addEventListener("keydown", startApp, { once: true });
 }
 
-//////////////// CREATE SCENE ////////////////
-function createScene() {
-  const sceneHTML =
-    '<a-scene>' +
-    '  <a-assets>' +
-    '    <audio id="bound-cue" preload="auto" src="./audio/bound.mp3"></audio>' +
-    '  </a-assets>' +
-    '  <a-camera>' +
-    '    <a-entity id="camera" cursor="fuse: true; fuseTimeout: 500" position="0 0 -1"' +
-    '      geometry="primitive: ring; radiusInner: 0.01; radiusOuter: 0.02"' +
-    '      material="color: black; shader: flat"></a-entity>' +
-    '  </a-camera>' +
-    '  <a-plane id="floor" position="0 0 0" rotation="-90 0 0" width="100" height="100" color="#7BC8A4"></a-plane>' +
-    '  <a-sky color="#ECECEC"></a-sky>' +
-    '</a-scene>';
-
-  document.body.insertAdjacentHTML("beforeend", sceneHTML);
-
-  sceneEl = document.querySelector("a-scene");
-  assetEl = document.querySelector("a-assets");
-
-  // Wait for A-Frame scene to be ready, then load data
-  if (sceneEl.hasLoaded) {
-    onSceneReady();
-  } else {
-    sceneEl.addEventListener("loaded", onSceneReady, { once: true });
-  }
-}
-
-function onSceneReady() {
-  // Double-check the AudioContext is running
-  if (sceneEl.audioListener && sceneEl.audioListener.context) {
-    const ctx = sceneEl.audioListener.context;
-    console.log("A-Frame AudioContext state:", ctx.state);
-    if (ctx.state === "suspended") {
-      ctx.resume();
+//////////////// AUDIO CONTEXT FIX (Firefox) ////////////////
+// Firefox suspends AudioContexts created before user gesture.
+// This function finds and resumes all relevant contexts.
+function resumeAllAudioContexts() {
+  // 1. THREE's shared AudioContext (used by A-Frame internally)
+  if (typeof THREE !== "undefined" && THREE.AudioContext) {
+    const ctx = THREE.AudioContext.getContext();
+    if (ctx && ctx.state === "suspended") {
+      ctx.resume().then(() => console.log("THREE AudioContext resumed"));
     }
   }
-  fetchJSONData();
+
+  // 2. A-Frame scene's audioListener context
+  const scene = document.querySelector("a-scene");
+  if (scene && scene.audioListener && scene.audioListener.context) {
+    const ctx = scene.audioListener.context;
+    if (ctx.state === "suspended") {
+      ctx.resume().then(() => console.log("A-Frame AudioContext resumed"));
+    }
+  }
+
+  // 3. Keep retrying for a few seconds in case A-Frame hasn't fully initialized
+  let retries = 0;
+  const retryInterval = setInterval(() => {
+    retries++;
+    let allRunning = true;
+
+    if (typeof THREE !== "undefined" && THREE.AudioContext) {
+      const ctx = THREE.AudioContext.getContext();
+      if (ctx && ctx.state === "suspended") {
+        ctx.resume();
+        allRunning = false;
+      }
+    }
+
+    const s = document.querySelector("a-scene");
+    if (s && s.audioListener && s.audioListener.context) {
+      if (s.audioListener.context.state === "suspended") {
+        s.audioListener.context.resume();
+        allRunning = false;
+      }
+    }
+
+    if (allRunning || retries > 20) {
+      clearInterval(retryInterval);
+      if (retries > 20) {
+        console.warn("AudioContext may still be suspended after retries");
+      }
+    }
+  }, 250);
 }
+
+// Patch A-Frame sound component: resume AudioContext before every playSound call
+// This is the most reliable Firefox fix — it ensures the context is running
+// at the exact moment sound playback is attempted.
+AFRAME.registerComponent("sound-context-fix", {
+  init: function () {
+    const soundComp = this.el.components.sound;
+    if (!soundComp) return;
+
+    const originalPlay = soundComp.playSound.bind(soundComp);
+    soundComp.playSound = function () {
+      if (this.pool && this.pool.children && this.pool.children.length > 0) {
+        const ctx = this.pool.children[0].context;
+        if (ctx && ctx.state === "suspended") {
+          ctx.resume();
+        }
+      }
+      return originalPlay();
+    };
+  },
+});
 
 function fetchJSONData() {
   fetch("./en_wiki_Galaxy_with_audio.json")
@@ -124,7 +159,6 @@ function loadAudio(data) {
   );
   collectAudioPromises(data.Sections, "Sections_", audioPromises);
 
-  // Wait for all audio elements to be loadable (or timeout after 5s)
   const timeoutPromise = new Promise((resolve) => setTimeout(resolve, 5000));
   Promise.race([Promise.all(audioPromises), timeoutPromise])
     .then(() => {
@@ -181,8 +215,6 @@ function createAudio(name) {
     );
 
     assetEl.appendChild(audioEl);
-
-    // Fallback timeout per file
     setTimeout(resolve, 4000);
   });
 }
@@ -199,7 +231,6 @@ function drawLayout(data) {
     data.Introduction.audio_path.replace("mp3s\\", "").replace(".mp3", ""), true,
   );
 
-  // Boundary sound
   createElement(
     sceneEl, minX - margin, y, z0 + margin, "#F0FFFF", "sound-cues", "bound",
     "bound-cue", false,
@@ -210,7 +241,6 @@ function drawLayout(data) {
   sounds = document.querySelectorAll("a-sphere");
   document.querySelector("[camera]").setAttribute("play-proxi", "");
 
-  // Spacebar control
   document.addEventListener("keyup", (event) => {
     if (event.code === "Space") {
       checkCollide = false;
@@ -223,6 +253,11 @@ function drawLayout(data) {
   });
 
   document.querySelector("[camera]").setAttribute("hit-bounds", "");
+
+  // Apply the sound-context-fix to all spheres with sound (Firefox fix)
+  sounds.forEach((s) => {
+    s.setAttribute("sound-context-fix", "");
+  });
 }
 
 function iterateSection(x, y, z, d, section, parentEl, prename, angle) {
