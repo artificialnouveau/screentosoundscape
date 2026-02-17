@@ -4,41 +4,8 @@
     <script src="layout.js" defer></script>
   </head>
   <body>
-    <a-scene>
-      <a-assets>
-        <audio
-          id="bound-cue"
-          preload="auto"
-          src="./audio/bound.mp3"
-        ></audio>
-      </a-assets>
-      <!-- Welcome message audio (plays before user clicks to start) -->
-      <audio id="welcome-audio" preload="auto" src="./audio/welcome.mp3"></audio>
-      <!--   add cursor     -->
-      <a-camera>
-        <a-entity
-          id="camera"
-          cursor="fuse: true; fuseTimeout: 500"
-          position="0 0 -1"
-          geometry="primitive: ring; radiusInner: 0.01; radiusOuter: 0.02"
-          material="color: black; shader: flat"
-        >
-        </a-entity>
-      </a-camera>
-
-      <!--    bird eye view    -->
-<!--                         <a-camera position="0 20 0"></a-camera> -->
-
-      <!--   ground & sky    -->
-      <a-plane
-        id="floor"
-        position="0 0 0"
-        rotation="-90 0 0"
-        width="100"
-        height="100"
-        color="#7BC8A4"
-      ></a-plane>
-      <a-sky color="#ECECEC"></a-sky>
-    </a-scene>
+    <!-- Welcome audio plays on landing, before user starts -->
+    <audio id="welcome-audio" preload="auto" src="./audio/welcome.mp3"></audio>
+    <!-- A-Frame scene is created dynamically by layout.js after user gesture -->
   </body>
 </html>
