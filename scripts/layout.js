@@ -46,8 +46,19 @@ function showStartOverlay() {
       welcomeAudio.play().catch(() => {});
     }
 
-    // Resume AudioContext (needed for both Chrome and Firefox)
-    resumeAudio();
+    // FIREFOX FIX: The <a-scene> may have already created an AudioContext
+    // (before any user gesture), which Firefox permanently suspends.
+    // Replace it with a fresh context created NOW (during the gesture)
+    // BEFORE any A-Frame sound components are initialized.
+    if (typeof THREE !== "undefined" && THREE.AudioContext) {
+      var ctx = THREE.AudioContext.getContext();
+      if (ctx.state === "suspended") {
+        // Create new context during user gesture — Firefox allows this one to run
+        var freshCtx = new (window.AudioContext || window.webkitAudioContext)();
+        THREE.AudioContext.setContext(freshCtx);
+        console.log("Replaced suspended AudioContext, new state:", freshCtx.state);
+      }
+    }
 
     fetchJSONData();
   }
