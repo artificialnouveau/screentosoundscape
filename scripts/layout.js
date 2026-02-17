@@ -59,33 +59,36 @@ function showStartOverlay() {
       welcomeAudio.currentTime = 0;
     }
 
-    // Resume A-Frame's AudioContext on user gesture (critical for Firefox)
-    // A-Frame may not have created its listener yet, so also hook into scene loaded
-    function resumeAudioContext() {
-      const scene = document.querySelector("a-scene");
-      if (scene && scene.audioListener && scene.audioListener.context) {
-        const ctx = scene.audioListener.context;
-        if (ctx.state === "suspended") {
-          ctx.resume().then(() => {
-            console.log("AudioContext resumed successfully");
+    // Firefox fix: AudioContext created before a user gesture can stay
+    // permanently suspended. Create a fresh one during this gesture and
+    // inject it into THREE so A-Frame uses the already-running context.
+    if (typeof THREE !== "undefined" && THREE.AudioContext) {
+      const oldCtx = THREE.AudioContext.getContext();
+      if (oldCtx.state === "suspended") {
+        // Close the old stuck context and replace with a new one
+        // created inside this user-gesture callback
+        const newCtx = new (window.AudioContext || window.webkitAudioContext)();
+        THREE.AudioContext.setContext(newCtx);
+        console.log("Replaced suspended AudioContext with new one (state:", newCtx.state, ")");
+        // If even the new one is suspended, resume it (should work inside gesture)
+        if (newCtx.state === "suspended") {
+          newCtx.resume().then(() => {
+            console.log("New AudioContext resumed");
           });
         }
-      }
-      // Also resume THREE.AudioContext which A-Frame uses internally
-      if (typeof THREE !== "undefined" && THREE.AudioContext) {
-        const threeCtx = THREE.AudioContext.getContext();
-        if (threeCtx && threeCtx.state === "suspended") {
-          threeCtx.resume().then(() => {
-            console.log("THREE AudioContext resumed");
-          });
-        }
+      } else {
+        console.log("AudioContext already running");
       }
     }
 
-    resumeAudioContext();
-    // Also try again after a short delay in case A-Frame hasn't initialized yet
-    setTimeout(resumeAudioContext, 500);
-    setTimeout(resumeAudioContext, 1500);
+    // Also resume A-Frame's audioListener context if it exists
+    const scene = document.querySelector("a-scene");
+    if (scene && scene.audioListener && scene.audioListener.context) {
+      const ctx = scene.audioListener.context;
+      if (ctx.state === "suspended") {
+        ctx.resume();
+      }
+    }
 
     fetchJSONData();
   }
@@ -580,20 +583,21 @@ function distance(x1, z1, x2, z2) {
   document.addEventListener(
     evtName,
     () => {
-      // Resume A-Frame's audio listener context
+      if (typeof THREE !== "undefined" && THREE.AudioContext) {
+        const ctx = THREE.AudioContext.getContext();
+        if (ctx.state === "suspended") {
+          // Replace with a fresh context created during this gesture
+          const newCtx = new (window.AudioContext || window.webkitAudioContext)();
+          THREE.AudioContext.setContext(newCtx);
+          if (newCtx.state === "suspended") {
+            newCtx.resume();
+          }
+        }
+      }
       const scene = document.querySelector("a-scene");
       if (scene && scene.audioListener && scene.audioListener.context) {
         if (scene.audioListener.context.state === "suspended") {
-          scene.audioListener.context.resume().then(() => {
-            console.log("AudioContext resumed successfully");
-          });
-        }
-      }
-      // Resume THREE's shared AudioContext (Firefox needs this)
-      if (typeof THREE !== "undefined" && THREE.AudioContext) {
-        const threeCtx = THREE.AudioContext.getContext();
-        if (threeCtx && threeCtx.state === "suspended") {
-          threeCtx.resume();
+          scene.audioListener.context.resume();
         }
       }
     },
