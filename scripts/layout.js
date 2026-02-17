@@ -44,19 +44,8 @@ function showStartOverlay() {
     var welcome = new Audio("./audio/welcome.mp3");
     welcome.play().catch(function(err) { console.warn("Welcome audio:", err); });
 
-    // FIREFOX FIX: The <a-scene> may have already created an AudioContext
-    // (before any user gesture), which Firefox permanently suspends.
-    // Replace it with a fresh context created NOW (during the gesture)
-    // BEFORE any A-Frame sound components are initialized.
-    if (typeof THREE !== "undefined" && THREE.AudioContext) {
-      var ctx = THREE.AudioContext.getContext();
-      if (ctx.state === "suspended") {
-        // Create new context during user gesture — Firefox allows this one to run
-        var freshCtx = new (window.AudioContext || window.webkitAudioContext)();
-        THREE.AudioContext.setContext(freshCtx);
-        console.log("Replaced suspended AudioContext, new state:", freshCtx.state);
-      }
-    }
+    // Resume AudioContext during user gesture (needed for Firefox)
+    resumeAudio();
 
     fetchJSONData();
   }
@@ -65,9 +54,10 @@ function showStartOverlay() {
   document.addEventListener("keydown", startApp, { once: true });
 }
 
-// Resume all audio contexts we can find
+// Resume ALL audio contexts we can find — THREE, A-Frame, and inside sound pools
 function resumeAudio() {
   try {
+    // 1. THREE's shared context
     if (typeof THREE !== "undefined" && THREE.AudioContext) {
       var ctx = THREE.AudioContext.getContext();
       if (ctx.state === "suspended") ctx.resume();
@@ -75,12 +65,27 @@ function resumeAudio() {
   } catch (e) {}
 
   try {
+    // 2. A-Frame scene's audioListener context
     var scene = document.querySelector("a-scene");
     if (scene && scene.audioListener && scene.audioListener.context) {
       if (scene.audioListener.context.state === "suspended") {
         scene.audioListener.context.resume();
       }
     }
+  } catch (e) {}
+
+  try {
+    // 3. Dig into every sound component's pool to find and resume their context
+    document.querySelectorAll("[sound]").forEach(function (el) {
+      var soundComp = el.components && el.components.sound;
+      if (soundComp && soundComp.pool && soundComp.pool.children) {
+        soundComp.pool.children.forEach(function (audio) {
+          if (audio.context && audio.context.state === "suspended") {
+            audio.context.resume();
+          }
+        });
+      }
+    });
   } catch (e) {}
 }
 
@@ -196,6 +201,12 @@ function drawLayout(data) {
   });
 
   document.querySelector("[camera]").setAttribute("hit-bounds", "");
+
+  // Resume audio contexts now that sound components are initialized
+  // (needed for Firefox — the contexts may exist now even if they didn't before)
+  resumeAudio();
+  setTimeout(resumeAudio, 500);
+  setTimeout(resumeAudio, 1500);
 }
 
 // Recursively iterates through sections, creating header and paragraph elements
