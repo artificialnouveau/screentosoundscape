@@ -40,11 +40,9 @@ function showStartOverlay() {
   function startApp() {
     overlay.remove();
 
-    // Play welcome audio on user gesture (so it works in all browsers)
-    const welcomeAudio = document.getElementById("welcome-audio");
-    if (welcomeAudio) {
-      welcomeAudio.play().catch(() => {});
-    }
+    // Play welcome audio - create fresh Audio object during gesture for reliability
+    var welcome = new Audio("./audio/welcome.mp3");
+    welcome.play().catch(function(err) { console.warn("Welcome audio:", err); });
 
     // FIREFOX FIX: The <a-scene> may have already created an AudioContext
     // (before any user gesture), which Firefox permanently suspends.
