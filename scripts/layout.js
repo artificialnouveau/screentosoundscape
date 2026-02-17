@@ -43,39 +43,49 @@ function showStartOverlay() {
     "</div>";
   document.body.appendChild(overlay);
 
-  // Speak the welcome message using the Web Speech API
-  const welcomeMessage =
-    "Welcome to Screen-to-Soundscape. " +
-    "Click anywhere or press any key to start. " +
-    "Use arrow keys to navigate, space bar to play or pause, " +
-    "and shift to find the nearest sound. " +
-    "We recommend pressing the up key first, until you bump into the first header.";
-  const utterance = new SpeechSynthesisUtterance(welcomeMessage);
-  utterance.rate = 1;
-  utterance.pitch = 1;
-  speechSynthesis.speak(utterance);
+  // Play welcome message audio if available
+  const welcomeAudio = document.getElementById("welcome-audio");
+  if (welcomeAudio) {
+    welcomeAudio.play().catch(() => {});
+  }
 
   function startApp() {
     userHasInteracted = true;
-    speechSynthesis.cancel(); // Stop the welcome speech when the user starts
     overlay.remove();
 
-    // Resume AudioContext on user gesture
-    const scene = document.querySelector("a-scene");
-    if (scene && scene.audioListener && scene.audioListener.context.state === "suspended") {
-      scene.audioListener.context.resume().then(() => {
-        console.log("AudioContext resumed successfully");
-      });
+    // Stop welcome audio if still playing
+    if (welcomeAudio) {
+      welcomeAudio.pause();
+      welcomeAudio.currentTime = 0;
     }
 
-    // Also try to resume any Web Audio API context A-Frame may create later
-    if (window.AudioContext || window.webkitAudioContext) {
-      const ctx = new (window.AudioContext || window.webkitAudioContext)();
-      if (ctx.state === "suspended") {
-        ctx.resume();
+    // Resume A-Frame's AudioContext on user gesture (critical for Firefox)
+    // A-Frame may not have created its listener yet, so also hook into scene loaded
+    function resumeAudioContext() {
+      const scene = document.querySelector("a-scene");
+      if (scene && scene.audioListener && scene.audioListener.context) {
+        const ctx = scene.audioListener.context;
+        if (ctx.state === "suspended") {
+          ctx.resume().then(() => {
+            console.log("AudioContext resumed successfully");
+          });
+        }
       }
-      ctx.close();
+      // Also resume THREE.AudioContext which A-Frame uses internally
+      if (typeof THREE !== "undefined" && THREE.AudioContext) {
+        const threeCtx = THREE.AudioContext.getContext();
+        if (threeCtx && threeCtx.state === "suspended") {
+          threeCtx.resume().then(() => {
+            console.log("THREE AudioContext resumed");
+          });
+        }
+      }
     }
+
+    resumeAudioContext();
+    // Also try again after a short delay in case A-Frame hasn't initialized yet
+    setTimeout(resumeAudioContext, 500);
+    setTimeout(resumeAudioContext, 1500);
 
     fetchJSONData();
   }
@@ -154,7 +164,6 @@ function createAudio(name) {
     audioEl.setAttribute("id", name);
     audioEl.setAttribute("preload", "auto");
     audioEl.setAttribute("src", url);
-    audioEl.setAttribute("crossorigin", "anonymous");
 
     audioEl.addEventListener("canplaythrough", () => resolve(), { once: true });
     audioEl.addEventListener(
@@ -566,17 +575,25 @@ function distance(x1, z1, x2, z2) {
   return Math.sqrt(Math.pow(x1 - x2, 2) + Math.pow(z1 - z2, 2));
 }
 
-// Resume AudioContext on any user interaction (belt-and-suspenders)
+// Resume AudioContext on any user interaction (belt-and-suspenders for Firefox)
 ["click", "keydown", "touchstart"].forEach((evtName) => {
   document.addEventListener(
     evtName,
     () => {
+      // Resume A-Frame's audio listener context
       const scene = document.querySelector("a-scene");
-      if (scene && scene.audioListener) {
+      if (scene && scene.audioListener && scene.audioListener.context) {
         if (scene.audioListener.context.state === "suspended") {
           scene.audioListener.context.resume().then(() => {
             console.log("AudioContext resumed successfully");
           });
+        }
+      }
+      // Resume THREE's shared AudioContext (Firefox needs this)
+      if (typeof THREE !== "undefined" && THREE.AudioContext) {
+        const threeCtx = THREE.AudioContext.getContext();
+        if (threeCtx && threeCtx.state === "suspended") {
+          threeCtx.resume();
         }
       }
     },
