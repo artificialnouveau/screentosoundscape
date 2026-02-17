@@ -23,6 +23,7 @@ window.addEventListener("DOMContentLoaded", (event) => {
 });
 
 //////////////// START OVERLAY ////////////////
+let started = false;
 function showStartOverlay() {
   const overlay = document.createElement("div");
   overlay.id = "start-overlay";
@@ -38,6 +39,8 @@ function showStartOverlay() {
   document.body.appendChild(overlay);
 
   function startApp() {
+    if (started) return;
+    started = true;
     overlay.remove();
 
     // Play welcome audio - create fresh Audio object during gesture for reliability
@@ -87,6 +90,68 @@ function resumeAudio() {
       }
     });
   } catch (e) {}
+}
+
+//////////////// AUDIO FALLBACK HELPERS ////////////////
+// These check if Web Audio context is running; if not, fall back to HTML <audio> element directly.
+// This fixes Firefox where AudioContext stays suspended despite resume() calls.
+
+function isWebAudioWorking(el) {
+  try {
+    var soundComp = el.components && el.components.sound;
+    if (soundComp && soundComp.pool && soundComp.pool.children.length > 0) {
+      return soundComp.pool.children[0].context.state === "running";
+    }
+  } catch (e) {}
+  return false;
+}
+
+function getAudioElFromSound(el) {
+  try {
+    var soundAttr = el.getAttribute("sound");
+    if (soundAttr) {
+      var match = soundAttr.match(/src:#([^;]+)/);
+      if (match) {
+        return document.getElementById(match[1].trim());
+      }
+    }
+  } catch (e) {}
+  return null;
+}
+
+function playSoundOnElement(el) {
+  if (isWebAudioWorking(el)) {
+    el.components.sound.playSound();
+  } else {
+    var audioEl = getAudioElFromSound(el);
+    if (audioEl) {
+      audioEl.currentTime = 0;
+      audioEl.play().catch(function() {});
+    }
+  }
+}
+
+function pauseSoundOnElement(el) {
+  if (isWebAudioWorking(el)) {
+    el.components.sound.pauseSound();
+  } else {
+    var audioEl = getAudioElFromSound(el);
+    if (audioEl) {
+      audioEl.pause();
+    }
+  }
+}
+
+function stopSoundOnElement(el) {
+  if (isWebAudioWorking(el)) {
+    el.components.sound.stopSound();
+  } else {
+    var audioEl = getAudioElFromSound(el);
+    if (audioEl) {
+      audioEl.pause();
+      audioEl.currentTime = 0;
+    }
+  }
 }
 
 function fetchJSONData() {
@@ -314,13 +379,13 @@ let playing = true;
 function checkAudio(audioArray) {
   if (!playing) {
     audioArray.forEach((s) => {
-      s.components.sound.playSound();
+      playSoundOnElement(s);
     });
     playing = true;
     console.log("play");
   } else {
     audioArray.forEach((s) => {
-      s.components.sound.pauseSound();
+      pauseSoundOnElement(s);
     });
     playing = false;
     console.log("stop");
@@ -372,13 +437,13 @@ AFRAME.registerComponent("hit-bounds", {
       bound.object3D.position.z = hitBound;
       if (!hit) {
         hit = true;
-        bound.components.sound.playSound();
+        playSoundOnElement(bound);
         // console.log("hit" + this.el.object3D.position.z);
       }
       document.addEventListener("keydown", (event) => {
         if (event.code === "ArrowDown") {
           hit = true;
-          bound.components.sound.playSound();
+          playSoundOnElement(bound);
         }
       });
     }
@@ -393,13 +458,13 @@ AFRAME.registerComponent("hit-bounds", {
       bound.object3D.position.z = hitBound;
       if (!hit) {
         hit = true;
-        bound.components.sound.playSound();
+        playSoundOnElement(bound);
         console.log("hit");
       }
       document.addEventListener("keydown", (event) => {
         if (event.code === "ArrowUp") {
           hit = true;
-          bound.components.sound.playSound();
+          playSoundOnElement(bound);
         }
       });
     }
@@ -414,13 +479,13 @@ AFRAME.registerComponent("hit-bounds", {
       bound.object3D.position.z = elZ;
       if (!hit) {
         hit = true;
-        bound.components.sound.playSound();
+        playSoundOnElement(bound);
         console.log("hit");
       }
       document.addEventListener("keydown", (event) => {
         if (event.code === "ArrowRight") {
           hit = true;
-          bound.components.sound.playSound();
+          playSoundOnElement(bound);
         }
       });
     }
@@ -434,13 +499,13 @@ AFRAME.registerComponent("hit-bounds", {
       bound.object3D.position.z = elZ;
       if (!hit) {
         hit = true;
-        bound.components.sound.playSound();
+        playSoundOnElement(bound);
         console.log("hit");
       }
       document.addEventListener("keydown", (event) => {
         if (event.code === "ArrowLeft") {
           hit = true;
-          bound.components.sound.playSound();
+          playSoundOnElement(bound);
         }
       });
     }
@@ -452,7 +517,7 @@ AFRAME.registerComponent("hit-bounds", {
       this.el.object3D.position.z < z0 + margin
     ) {
       if (hit) {
-        bound.components.sound.stopSound();
+        stopSoundOnElement(bound);
       }
       hit = false;
     }
@@ -474,11 +539,11 @@ AFRAME.registerComponent("collide", {
         // console.log(this.el);
         checkCollide = true;
         collide = false;
-        this.el.components.sound.playSound();
+        playSoundOnElement(this.el);
         console.log("collide: " + this.el.id);
         sounds.forEach((s) => {
           if (s != this.el) {
-            s.components.sound.pauseSound();
+            pauseSoundOnElement(s);
           }
         });
       }
@@ -506,7 +571,7 @@ AFRAME.registerComponent("check-collide", {
       if (!colStatus) {
         sounds.forEach((s) => {
           if (!s.components.sound.isPlaying) {
-            s.components.sound.playSound();
+            playSoundOnElement(s);
           }
         });
         checkCollide = false;
@@ -537,13 +602,12 @@ AFRAME.registerComponent("play-proxi", {
             proxiEl = s;
           }
         });
-        // proxiEl.components.sound.stopSound();
         sounds.forEach((s) => {
           if (s != proxiEl) {
-            s.components.sound.pauseSound();
+            pauseSoundOnElement(s);
           }
         });
-        proxiEl.components.sound.playSound();
+        playSoundOnElement(proxiEl);
         // console.log(proxiEl);
       }
     });
