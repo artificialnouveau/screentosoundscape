@@ -137,7 +137,7 @@ screentosoundscape/
 ### 🔧 Prototype (prototype.html)
 - Development journey
 - Technical architecture
-- Links to GitHub and Glitch demos
+- Links to GitHub and local A-Frame prototype
 - Co-creation feedback
 
 ### 🔊 Sounds (sounds.html)

@@ -1,98 +1,39 @@
-<!DOCTYPE html>
 <html>
   <head>
     <script src="https://aframe.io/releases/1.6.0/aframe.min.js"></script>
-    <script>
-      document.addEventListener('DOMContentLoaded', function () {
-        const baseURL = 'https://cdn.glitch.global/29f485a2-4e84-4a5b-bfc9-3c0a6a276b55/';
-        const assetsContainer = document.querySelector('a-assets');
-        const sceneContainer = document.querySelector('a-scene');
-
-        // Variables for positioning
-        let xPosition = 0;
-        let yPosition = 2;  // Start position for Title sphere
-        let zPosition = -5;
-        let headerXPosition = 0;  // Positioning for headers (H2)
-        let paragraphYPosition = 0; // Positioning for paragraphs under each header
-
-        // Function to create an audio sphere
-        function createAudioSphere(id, audioPath, x, y, z) {
-          // Create audio element
-          const audioElement = document.createElement('audio');
-          audioElement.id = id;
-          audioElement.preload = 'auto';
-          audioElement.src = `${baseURL}${audioPath}?v=${Date.now()}`; // Append a timestamp for cache busting
-          assetsContainer.appendChild(audioElement);
-
-          // Create sphere element
-          const sphereElement = document.createElement('a-sphere');
-          sphereElement.id = `sphere-${id}`;
-          sphereElement.setAttribute('position', `${x} ${y} ${z}`);
-          sphereElement.setAttribute('radius', '0.5');
-          sphereElement.setAttribute('color', '#EF2D5E');
-          sphereElement.setAttribute('shader', 'flat');
-          sphereElement.setAttribute('sound', `src:#${id}`);
-          sceneContainer.appendChild(sphereElement);
-        }
-
-        // Function to traverse JSON and create audio spheres
-        function traverseJson(obj, level = 0) {
-          for (const key in obj) {
-            if (obj[key] && typeof obj[key] === 'object') {
-              // Create spheres for audio_path and text
-              if (obj[key].audio_path) {
-                createAudioSphere(
-                  key.replace(/[\W_]+/g, ""), // Use key as id, stripping special characters
-                  obj[key].audio_path,
-                  xPosition,
-                  yPosition,
-                  zPosition
-                );
-
-                // Adjust positions for next elements
-                if (key === "Title") {
-                  // Title sphere at starting position, no change to yPosition
-                  yPosition -= 2; // Move down for the Introduction sphere
-                } else if (key === "Introduction") {
-                  // Introduction sphere below Title
-                  yPosition -= 2; // Move down for the first Header sphere
-                } else if (key.startsWith('H2')) {
-                  headerXPosition -= 2; // Move left for each H2 header
-                  paragraphYPosition = yPosition - 2; // Set Y position for paragraphs below this header
-                  xPosition = headerXPosition; // Update xPosition to align H2 headers on the same level
-                  yPosition = yPosition; // Keep yPosition the same for headers
-                } else if (key.startsWith('H3') || key.startsWith('P')) {
-                  xPosition = headerXPosition; // Align paragraphs below their respective headers
-                  yPosition = paragraphYPosition; // Place below the related header
-                  paragraphYPosition -= 1.5; // Move further down for next paragraph
-                }
-              }
-
-              traverseJson(obj[key], level + 1); // Recursively traverse nested objects
-            }
-          }
-        }
-
-        // Fetch the JSON data and process it
-        fetch('data.json')  // Replace 'data.json' with the correct path to your JSON file
-          .then(response => response.json())
-          .then(data => {
-            traverseJson(data); // Start traversing the JSON to create elements
-          })
-          .catch(error => console.error('Error loading JSON data:', error));
-      });
-    </script>
+    <script src="layout.js" defer></script>
   </head>
   <body>
     <a-scene>
-      <a-assets></a-assets>
+      <a-assets>
+        <audio
+          id="bound-cue"
+          preload="auto"
+          src="./audio/bound.mp3"
+        ></audio>
+      </a-assets>
+      <!--   add cursor     -->
+      <a-camera>
+        <a-entity
+          id="camera"
+          cursor="fuse: true; fuseTimeout: 500"
+          position="0 0 -1"
+          geometry="primitive: ring; radiusInner: 0.01; radiusOuter: 0.02"
+          material="color: black; shader: flat"
+        >
+        </a-entity>
+      </a-camera>
 
-      <!-- Ground & sky -->
+      <!--    bird eye view    -->
+<!--                         <a-camera position="0 20 0"></a-camera> -->
+
+      <!--   ground & sky    -->
       <a-plane
+        id="floor"
         position="0 0 0"
         rotation="-90 0 0"
-        width="40"
-        height="40"
+        width="100"
+        height="100"
         color="#7BC8A4"
       ></a-plane>
       <a-sky color="#ECECEC"></a-sky>

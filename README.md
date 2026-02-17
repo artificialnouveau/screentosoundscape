@@ -22,7 +22,7 @@ This repository contains two main components:
 - Python scripts for HTML-to-audio conversion
 - Wiki API integration
 - Audio generation tools
-- Glitch effects and sequential playback
+- A-Frame 3D spatial audio prototype
 
 ## Project Structure
 
@@ -38,7 +38,10 @@ screentosoundscape/
 │   ├── 01_wiki_api.py           # Wikipedia API integration
 │   ├── 02_wiki_data_to_audio.py # Audio conversion
 │   ├── html_scraping_voice_generation.py
-│   └── index.html               # Glitch audio player
+│   ├── index.html               # A-Frame 3D prototype
+│   ├── layout.js                # Prototype scene layout and audio logic
+│   ├── en_wiki_Galaxy_with_audio.json  # Wikipedia data with audio paths
+│   └── audio/                   # MP3 audio files for the prototype
 ├── wiki_jsons/                   # Wiki data storage
 └── README.md
 ```

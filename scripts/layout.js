@@ -1,0 +1,572 @@
+// Global variables - keep them here but don't assign DOM elements yet
+let sceneEl, assetEl, sounds;
+const y = 1.6;
+const d1 = 8;
+const d2 = 8;
+const dp = 6;
+let x0 = 0,
+  z = 0,
+  z0 = 0;
+let minX = 0,
+  maxX = 0,
+  minZ = 0;
+const margin = 2;
+const proxi = 2;
+let elCount = 0;
+let checkCollide = false;
+let collide = true;
+
+// Track whether user has interacted (for autoplay policy)
+let userHasInteracted = false;
+
+window.addEventListener("DOMContentLoaded", (event) => {
+  // NOW we can find the elements
+  sceneEl = document.querySelector("a-scene");
+  assetEl = document.querySelector("a-assets");
+
+  // Show a "Click to start" overlay to satisfy browser autoplay policy
+  showStartOverlay();
+});
+
+//////////////// START OVERLAY ////////////////
+function showStartOverlay() {
+  const overlay = document.createElement("div");
+  overlay.id = "start-overlay";
+  overlay.style.cssText =
+    "position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.8);" +
+    "display:flex;align-items:center;justify-content:center;z-index:9999;cursor:pointer;";
+  overlay.innerHTML =
+    '<div style="color:white;font-family:sans-serif;text-align:center;">' +
+    '<h1 style="font-size:2rem;margin-bottom:1rem;">Screen-to-Soundscape</h1>' +
+    '<p style="font-size:1.2rem;">Click anywhere or press any key to start</p>' +
+    '<p style="font-size:0.9rem;margin-top:1rem;opacity:0.7;">Use arrow keys to navigate, spacebar to play/pause, shift to find nearest sound</p>' +
+    "</div>";
+  document.body.appendChild(overlay);
+
+  function startApp() {
+    userHasInteracted = true;
+    overlay.remove();
+
+    // Resume AudioContext on user gesture
+    const scene = document.querySelector("a-scene");
+    if (scene && scene.audioListener && scene.audioListener.context.state === "suspended") {
+      scene.audioListener.context.resume().then(() => {
+        console.log("AudioContext resumed successfully");
+      });
+    }
+
+    // Also try to resume any Web Audio API context A-Frame may create later
+    if (window.AudioContext || window.webkitAudioContext) {
+      const ctx = new (window.AudioContext || window.webkitAudioContext)();
+      if (ctx.state === "suspended") {
+        ctx.resume();
+      }
+      ctx.close();
+    }
+
+    fetchJSONData();
+  }
+
+  overlay.addEventListener("click", startApp, { once: true });
+  document.addEventListener("keydown", startApp, { once: true });
+}
+
+function fetchJSONData() {
+  fetch("./en_wiki_Galaxy_with_audio.json")
+    .then((res) => {
+      if (!res.ok) throw new Error(`HTTP error! Status: ${res.status}`);
+      return res.json();
+    })
+    .then((data) => loadAudio(data))
+    .catch((error) => console.error("Unable to fetch data:", error));
+}
+
+//////////////// LOAD AUDIO ////////////////
+function loadAudio(data) {
+  const audioPromises = [];
+
+  // Create all audio elements and collect load promises
+  audioPromises.push(
+    createAudio(data.Title.audio_path.replace("mp3s\\", "").replace(".mp3", ""))
+  );
+  audioPromises.push(
+    createAudio(
+      data.Introduction.audio_path.replace("mp3s\\", "").replace(".mp3", "")
+    )
+  );
+  collectAudioPromises(data.Sections, "Sections_", audioPromises);
+
+  // Wait for all audio elements to be loadable (or timeout after 5s)
+  const timeoutPromise = new Promise((resolve) => setTimeout(resolve, 5000));
+  Promise.race([Promise.all(audioPromises), timeoutPromise])
+    .then(() => {
+      console.log("Audio loaded, building scene...");
+      drawLayout(data);
+    })
+    .catch((err) => {
+      console.warn("Some audio failed to load, building scene anyway:", err);
+      drawLayout(data);
+    });
+}
+
+function collectAudioPromises(section, prename, promises) {
+  for (const key in section) {
+    const name = prename + key.replace(":", "").replaceAll(" ", "_");
+    promises.push(
+      createAudio(
+        section[key].audio_path.replace("mp3s\\", "").replace(".mp3", "")
+      )
+    );
+
+    if (section[key].P && section[key].P.audio_path !== "") {
+      promises.push(
+        createAudio(
+          section[key].P.audio_path.replace("mp3s\\", "").replace(".mp3", "")
+        )
+      );
+    }
+    if (section[key].Subsections) {
+      collectAudioPromises(section[key].Subsections, name + "_Subsections_", promises);
+    }
+  }
+}
+
+function createAudio(name) {
+  if (!name) return Promise.resolve();
+
+  return new Promise((resolve) => {
+    const audioEl = document.createElement("audio");
+    const url = `./audio/${name}.mp3`;
+
+    audioEl.setAttribute("id", name);
+    audioEl.setAttribute("preload", "auto");
+    audioEl.setAttribute("src", url);
+    audioEl.setAttribute("crossorigin", "anonymous");
+
+    audioEl.addEventListener("canplaythrough", () => resolve(), { once: true });
+    audioEl.addEventListener(
+      "error",
+      (e) => {
+        console.warn(`Failed to load audio: ${url}`, e);
+        resolve(); // resolve anyway so we don't block the scene
+      },
+      { once: true }
+    );
+
+    assetEl.appendChild(audioEl);
+
+    // Fallback timeout per file - don't wait forever
+    setTimeout(resolve, 4000);
+  });
+}
+
+//////////////// DRAW LAYOUT ///////////////////
+function drawLayout(data) {
+  z = -d1;
+  const titleEl = createElement(
+    sceneEl,
+    x0,
+    y,
+    z,
+    "#EF2D5E",
+    "title",
+    "title",
+    data.Title.audio_path.replace("mp3s\\", "").replace(".mp3", ""),
+    true,
+  );
+  const introEl = createElement(
+    titleEl,
+    x0,
+    0,
+    z,
+    "#EF2D5E",
+    "intro",
+    "intro",
+    data.Introduction.audio_path.replace("mp3s\\", "").replace(".mp3", ""),
+    true,
+  );
+
+  // Boundary sound
+  createElement(
+    sceneEl,
+    minX - margin,
+    y,
+    z0 + margin,
+    "#F0FFFF",
+    "sound-cues",
+    "bound",
+    "bound-cue",
+    false,
+  );
+
+  iterateSection(x0, 0, z, d1, data.Sections, introEl, "Sections_", 0);
+
+  sounds = document.querySelectorAll("a-sphere");
+  document.querySelector("[camera]").setAttribute("play-proxi", "");
+
+  // Spacebar control
+  document.addEventListener("keyup", (event) => {
+    if (event.code === "Space") {
+      checkCollide = false;
+      checkAudio(sounds);
+    }
+  });
+
+  document.addEventListener("keydown", (event) => {
+    collide = true;
+  });
+
+  document.querySelector("[camera]").setAttribute("hit-bounds", "");
+}
+
+// Recursively iterates through sections, creating header and paragraph elements
+function iterateSection(x, y, z, d, section, parentEl, prename, angle) {
+  const numSections = Object.keys(section).length;
+  const degStep = numSections === 1 ? Math.PI / 2 : Math.PI / (numSections - 1);
+
+  Object.keys(section).forEach((key, i) => {
+    const name = prename + key.replace(":", "").replaceAll(" ", "_");
+    const headerName = section[key].audio_path
+      .replace("mp3s\\", "")
+      .replace(".mp3", "");
+
+    // Calculate position for the section
+    const x1 = -d * Math.cos(degStep * i + angle);
+    const z1 = -d / 2 - d * Math.sin(degStep * i + angle);
+
+    // Create header element (blue)
+    const headerEl = createElement(
+      parentEl,
+      x1,
+      y,
+      z1,
+      "#00FFFF",
+      "header",
+      `${key}${i}`,
+      headerName,
+      true,
+    );
+
+    // If paragraph exists, create it (yellow)
+    if (section[key].P) {
+      const xp = -dp * Math.cos(degStep * i + angle);
+      const zp = -dp * Math.sin(degStep * i + angle);
+      createElement(
+        headerEl,
+        xp,
+        y,
+        zp,
+        "#FFFF00",
+        "p",
+        `${key}${i}_p`,
+        section[key].P.audio_path.replace("mp3s\\", "").replace(".mp3", ""),
+        true,
+      );
+    }
+
+    // Recursively handle subsections
+    if (section[key].Subsections) {
+      iterateSection(
+        x1,
+        y,
+        z1,
+        d2,
+        section[key].Subsections,
+        headerEl,
+        name + "_Subsections_",
+        0,
+      );
+    }
+  });
+}
+
+// Helper function to create a visual element (sphere) in the scene
+function createElement(
+  parentEl,
+  x,
+  y,
+  z,
+  color,
+  className,
+  id,
+  soundId,
+  autoPlay,
+) {
+  const sphereEl = document.createElement("a-sphere");
+  sphereEl.setAttribute("color", color);
+  sphereEl.setAttribute("shader", "flat");
+  sphereEl.setAttribute("radius", "0.5");
+  sphereEl.setAttribute("position", `${x} ${y} ${z}`);
+  sphereEl.setAttribute("class", className);
+  sphereEl.setAttribute("id", id);
+
+  // Added poolSize: 10 to fix the "All sounds are playing" warning
+  const soundSrc = `src:#${soundId}`;
+  sphereEl.setAttribute(
+    "sound",
+    autoPlay
+      ? `${soundSrc}; autoplay: false; loop: false; distanceModel: exponential; refDistance: 3; rolloffFactor: 3; poolSize: 1`
+      : `${soundSrc}; poolSize: 1`,
+  );
+
+  if (autoPlay) {
+    sphereEl.setAttribute("world-pos", "");
+    sphereEl.setAttribute("collide", "");
+  }
+
+  parentEl.appendChild(sphereEl);
+  elCount++;
+  return sphereEl;
+}
+
+//////////////// PLAY AUDIO ////////////////
+let playing = true;
+function checkAudio(audioArray) {
+  if (!playing) {
+    audioArray.forEach((s) => {
+      s.components.sound.playSound();
+    });
+    playing = true;
+    console.log("play");
+  } else {
+    audioArray.forEach((s) => {
+      s.components.sound.pauseSound();
+    });
+    playing = false;
+    console.log("stop");
+  }
+}
+
+//////////////// GET WORLD POS ////////////////
+AFRAME.registerComponent("world-pos", {
+  init: function () {
+    this.worldpos = new THREE.Vector3();
+  },
+  update: function () {
+    this.el.getObject3D("mesh").getWorldPosition(this.worldpos);
+    if (this.worldpos.x < 0) {
+      if (this.worldpos.x < minX) {
+        minX = this.worldpos.x;
+      }
+    } else {
+      if (this.worldpos.x > maxX) {
+        maxX = this.worldpos.x;
+      }
+    }
+
+    if (this.worldpos.z < minZ) {
+      minZ = this.worldpos.z;
+    }
+  },
+});
+
+//////////////// HIT BOUND ////////////////
+let hit = false;
+AFRAME.registerComponent("hit-bounds", {
+  init: function () {},
+  tick: function () {
+    const bound = document.querySelector("#bound");
+    let elX = this.el.object3D.position.x;
+    let elZ = this.el.object3D.position.z;
+    let hitBound;
+    // limit Z
+    if (
+      this.el.object3D.position.z > z0 + margin ||
+      this.el.object3D.position.z == z0 + margin
+    ) {
+      this.el.object3D.position.z = z0 + margin;
+      hitBound = z0 + margin + 0.5;
+      bound.object3D.position.x = elX;
+      bound.object3D.position.z = hitBound;
+      if (!hit) {
+        hit = true;
+        bound.components.sound.playSound();
+      }
+      document.addEventListener("keydown", (event) => {
+        if (event.code === "ArrowDown") {
+          hit = true;
+          bound.components.sound.playSound();
+        }
+      });
+    }
+    if (
+      this.el.object3D.position.z < minZ - margin ||
+      this.el.object3D.position.z == minZ - margin
+    ) {
+      this.el.object3D.position.z = minZ - margin;
+      hitBound = minZ - margin - 0.5;
+      bound.object3D.position.x = elX;
+      bound.object3D.position.z = hitBound;
+      if (!hit) {
+        hit = true;
+        bound.components.sound.playSound();
+        console.log("hit");
+      }
+      document.addEventListener("keydown", (event) => {
+        if (event.code === "ArrowUp") {
+          hit = true;
+          bound.components.sound.playSound();
+        }
+      });
+    }
+    // limit X
+    if (
+      this.el.object3D.position.x > maxX + margin ||
+      this.el.object3D.position.x == maxX + margin
+    ) {
+      this.el.object3D.position.x = maxX + margin;
+      hitBound = maxX + margin + 0.5;
+      bound.object3D.position.x = hitBound;
+      bound.object3D.position.z = elZ;
+      if (!hit) {
+        hit = true;
+        bound.components.sound.playSound();
+        console.log("hit");
+      }
+      document.addEventListener("keydown", (event) => {
+        if (event.code === "ArrowRight") {
+          hit = true;
+          bound.components.sound.playSound();
+        }
+      });
+    }
+    if (
+      this.el.object3D.position.x < minX - margin ||
+      this.el.object3D.position.x == minX - margin
+    ) {
+      this.el.object3D.position.x = minX - margin;
+      hitBound = minX - margin - 0.5;
+      bound.object3D.position.x = hitBound;
+      bound.object3D.position.z = elZ;
+      if (!hit) {
+        hit = true;
+        bound.components.sound.playSound();
+        console.log("hit");
+      }
+      document.addEventListener("keydown", (event) => {
+        if (event.code === "ArrowLeft") {
+          hit = true;
+          bound.components.sound.playSound();
+        }
+      });
+    }
+
+    if (
+      this.el.object3D.position.x > minX - margin &&
+      this.el.object3D.position.x < maxX + margin &&
+      this.el.object3D.position.z > minZ - margin &&
+      this.el.object3D.position.z < z0 + margin
+    ) {
+      if (hit) {
+        bound.components.sound.stopSound();
+      }
+      hit = false;
+    }
+  },
+});
+
+AFRAME.registerComponent("collide", {
+  init: function () {
+    this.worldpos = new THREE.Vector3();
+  },
+  tick: function () {
+    if (collide) {
+      const cameraEl = document.querySelector("[camera]");
+      let camX = cameraEl.object3D.position.x;
+      let camZ = cameraEl.object3D.position.z;
+      this.el.getObject3D("mesh").getWorldPosition(this.worldpos);
+      if (distance(camX, camZ, this.worldpos.x, this.worldpos.z) < proxi) {
+        checkCollide = true;
+        collide = false;
+        this.el.components.sound.playSound();
+        console.log("collide: " + this.el.id);
+        sounds.forEach((s) => {
+          if (s != this.el) {
+            s.components.sound.pauseSound();
+          }
+        });
+      }
+    }
+  },
+});
+
+AFRAME.registerComponent("check-collide", {
+  init: function () {},
+  tick: function () {
+    if (checkCollide) {
+      let worldpos = new THREE.Vector3();
+      let elX = this.el.object3D.position.x;
+      let elZ = this.el.object3D.position.z;
+      let colStatus = false;
+      sounds.forEach((s) => {
+        s.getObject3D("mesh").getWorldPosition(worldpos);
+        if (distance(elX, elZ, worldpos.x, worldpos.z) < proxi) {
+          colStatus = true;
+        }
+      });
+
+      if (!colStatus) {
+        sounds.forEach((s) => {
+          if (!s.components.sound.isPlaying) {
+            s.components.sound.playSound();
+          }
+        });
+        checkCollide = false;
+        collide = true;
+      }
+    }
+  },
+});
+
+AFRAME.registerComponent("play-proxi", {
+  init: function () {},
+  tick: function () {
+    let worldpos = new THREE.Vector3();
+    let elX = this.el.object3D.position.x;
+    let elZ = this.el.object3D.position.z;
+    let proxiEl;
+    let closeDist = 100;
+
+    document.addEventListener("keyup", (event) => {
+      if (event.code === "ShiftLeft") {
+        checkCollide = false;
+        sounds.forEach((s) => {
+          s.getObject3D("mesh").getWorldPosition(worldpos);
+          if (distance(elX, elZ, worldpos.x, worldpos.z) < closeDist) {
+            closeDist = distance(elX, elZ, worldpos.x, worldpos.z);
+            proxiEl = s;
+          }
+        });
+        sounds.forEach((s) => {
+          if (s != proxiEl) {
+            s.components.sound.pauseSound();
+          }
+        });
+        proxiEl.components.sound.playSound();
+      }
+    });
+  },
+});
+
+// Helper function to calculate distance between two points (x1, z1) and (x2, z2)
+function distance(x1, z1, x2, z2) {
+  return Math.sqrt(Math.pow(x1 - x2, 2) + Math.pow(z1 - z2, 2));
+}
+
+// Resume AudioContext on any user interaction (belt-and-suspenders)
+["click", "keydown", "touchstart"].forEach((evtName) => {
+  document.addEventListener(
+    evtName,
+    () => {
+      const scene = document.querySelector("a-scene");
+      if (scene && scene.audioListener) {
+        if (scene.audioListener.context.state === "suspended") {
+          scene.audioListener.context.resume().then(() => {
+            console.log("AudioContext resumed successfully");
+          });
+        }
+      }
+    },
+    { once: true },
+  );
+});

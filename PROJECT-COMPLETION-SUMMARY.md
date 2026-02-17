@@ -96,7 +96,7 @@ All pages have been duplicated with `PREVIEW-` prefix for easy local testing:
 - ✅ Prototype evolution history
 - ✅ First and second prototype descriptions
 - ✅ Co-creation feedback sections
-- ✅ Links to GitHub and Glitch demos
+- ✅ Links to GitHub and local A-Frame prototype
 - ✅ Garden of Earthly Delights hero image
 
 ### 5. Sounds (sounds.html)
@@ -174,8 +174,7 @@ All pages have been duplicated with `PREVIEW-` prefix for easy local testing:
 
 ### External Links
 - GitHub repository: https://github.com/vladimirnani/screen2soundscape
-- Prototype 1 (Glitch): https://screen2soundscape-cocreation1.glitch.me/
-- Prototype 2 (Glitch): https://screen2soundscape-cocreation2-soundcues.glitch.me/
+- A-Frame Prototype: scripts/index.html (local)
 - Latest release: https://github.com/vladimirnani/screen2soundscape/releases/tag/1.0.5
 - Organization websites (Constant, Processing Foundation, Stimuleringsfonds, SIDN)
 - Team member personal websites (6 links)

@@ -52,7 +52,7 @@ All pages have been successfully created and recreated from the screentosoundsca
   - First and Second Prototype designs
   - Co-creation feedback and reflections
   - Future plans
-- **Features:** Garden of Earthly Delights hero image, links to GitHub and Glitch prototypes
+- **Features:** Garden of Earthly Delights hero image, links to GitHub and local A-Frame prototype
 
 ### 5. **sounds.html**
 - **File Path:** `/Users/ahnjili_harmony/Documents/GitHub/screentosoundscape/sounds.html`
@@ -165,13 +165,12 @@ All pages feature:
 ### Embedded Media
 - **YouTube Video:** Prototype demo (kGNphqx7eCA)
 - **Audio Player:** NotebookML podcast (MP3 from Squarespace static)
-- **External Links:** GitHub repository, Glitch prototypes, organization websites
+- **External Links:** GitHub repository, organization websites
 
 ## Key External Links
 
 - **GitHub Repository:** https://github.com/vladimirnani/screen2soundscape
-- **Prototype 1 (Glitch):** https://screen2soundscape-cocreation1.glitch.me/
-- **Prototype 2 (Glitch):** https://screen2soundscape-cocreation2-soundcues.glitch.me/
+- **A-Frame Prototype:** scripts/index.html (local)
 - **Latest Release:** https://github.com/vladimirnani/screen2soundscape/releases/tag/1.0.5
 
 ## Technologies Used
