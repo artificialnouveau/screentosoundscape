@@ -43,8 +43,21 @@ function showStartOverlay() {
     "</div>";
   document.body.appendChild(overlay);
 
+  // Speak the welcome message using the Web Speech API
+  const welcomeMessage =
+    "Welcome to Screen-to-Soundscape. " +
+    "Click anywhere or press any key to start. " +
+    "Use arrow keys to navigate, space bar to play or pause, " +
+    "and shift to find the nearest sound. " +
+    "We recommend pressing the up key first, until you bump into the first header.";
+  const utterance = new SpeechSynthesisUtterance(welcomeMessage);
+  utterance.rate = 1;
+  utterance.pitch = 1;
+  speechSynthesis.speak(utterance);
+
   function startApp() {
     userHasInteracted = true;
+    speechSynthesis.cancel(); // Stop the welcome speech when the user starts
     overlay.remove();
 
     // Resume AudioContext on user gesture
