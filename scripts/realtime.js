@@ -58,14 +58,8 @@ var sectionAmbients = {};
 // --- Feature 5: Dynamic clustering ---
 var sectionWeights = {};
 
-// --- Feature 6: Vertical dimension ---
-var yLevels = {
-  title: 3.0,
-  intro: 2.5,
-  section: 1.6,
-  subsection: 0.8,
-  paragraph: 0.3
-};
+// --- Y level (all at same height for consistent audio) ---
+var yLevel = 1.6;
 
 // --- Home position (for Escape to return) ---
 var homePos = { x: 0, y: 1.6, z: 0 };
@@ -99,7 +93,7 @@ var i18n = {
     progress_done: "Done!",
     overlay_title: "Screen-to-Soundscape",
     overlay_start: "Click anywhere or press any key to start",
-    overlay_desktop: "Arrow keys: move. Space: play/pause. Double-tap Space: welcome. Shift: nearest sound. Tab: where am I. CapsLock: play all by distance. Enter: load portal. Escape: return to start.",
+    overlay_desktop: "Arrow keys: move. Space: play/pause. Double-tap Space: welcome. Shift: nearest sound. Tab: where am I. P: play all by distance. Enter: load portal. Escape: return to start.",
     overlay_mobile: "Use on-screen buttons to move, tilt to look around, center button to play/pause",
     aria_sphere_title: "Article title: {name}",
     aria_sphere_intro: "Introduction",
@@ -129,7 +123,7 @@ var i18n = {
     progress_done: "Terminé !",
     overlay_title: "Screen-to-Soundscape",
     overlay_start: "Cliquez n'importe où ou appuyez sur une touche pour commencer",
-    overlay_desktop: "Flèches : se déplacer. Espace : pause. Double espace : accueil. Shift : son le plus proche. Tab : où suis-je. CapsLock : tout lire. Entrée : portail. Échap : retour au départ.",
+    overlay_desktop: "Flèches : se déplacer. Espace : pause. Double espace : accueil. Shift : son le plus proche. Tab : où suis-je. P : tout lire. Entrée : portail. Échap : retour au départ.",
     overlay_mobile: "Utilisez les boutons à l'écran pour vous déplacer, inclinez pour regarder, bouton central pour pause",
     aria_sphere_title: "Titre de l'article : {name}",
     aria_sphere_intro: "Introduction",
@@ -951,15 +945,15 @@ function drawLayout(data) {
   var introAudioId = data.Introduction._id;
 
   // Feature 6: Vertical dimension — title above, intro slightly below
-  var titleEl = createElement(sceneEl, x0, yLevels.title, z, "#EF2D5E", "title", "title", titleAudioId, true, "title",
+  var titleEl = createElement(sceneEl, x0, yLevel, z, "#EF2D5E", "title", "title", titleAudioId, true, "title",
     t("aria_sphere_title", { name: data.Title.text }));
   titleEl._hierarchyLevel = "title";
 
-  var introEl = createElement(titleEl, x0, yLevels.intro - yLevels.title, z, "#EF2D5E", "intro", "intro", introAudioId, true, "title",
+  var introEl = createElement(titleEl, x0, 0, z, "#EF2D5E", "intro", "intro", introAudioId, true, "title",
     t("aria_sphere_intro"));
   introEl._hierarchyLevel = "intro";
 
-  createElement(sceneEl, minX - margin, yLevels.section, z0 + margin, "#F0FFFF", "sound-cues", "bound", "bound-cue", false, null, "Boundary");
+  createElement(sceneEl, minX - margin, yLevel, z0 + margin, "#F0FFFF", "sound-cues", "bound", "bound-cue", false, null, "Boundary");
 
   // Feature 5: Dynamic clustering — weight angular spread by content length
   iterateSectionWeighted(x0, 0, z, d1, data.Sections, introEl, "Sections_", 0);
@@ -1025,12 +1019,7 @@ function iterateSectionWeighted(x, baseY, z, d, section, parentEl, prename, angl
 
     var x1 = -d * Math.cos(midAngle);
     var z1 = -d / 2 - d * Math.sin(midAngle);
-    var yPos = level === "subsection" ? yLevels.subsection : yLevels.section;
-
-    // Y is relative to parent
-    var relY = yPos - (parentEl === sceneEl ? 0 : yLevels.intro);
-
-    var headerEl = createElement(parentEl, x1, relY, z1, "#00FFFF", "header", key + i, headerAudioId, true, level,
+    var headerEl = createElement(parentEl, x1, 0, z1, "#00FFFF", "header", key + i, headerAudioId, true, level,
       t(ariaKey, { name: sec.text }));
     headerEl._sectionKey = key;
     headerEl._hierarchyLevel = level;
@@ -1039,13 +1028,13 @@ function iterateSectionWeighted(x, baseY, z, d, section, parentEl, prename, angl
     if (sec.P && sec.P.text && sec.P._id) {
       var xp = -dp * Math.cos(midAngle);
       var zp = -dp * Math.sin(midAngle);
-      var pEl = createElement(headerEl, xp, yLevels.paragraph - yPos, zp, "#FFFF00", "p", key + i + "_p", sec.P._id, true, "paragraph",
+      var pEl = createElement(headerEl, xp, 0, zp, "#FFFF00", "p", key + i + "_p", sec.P._id, true, "paragraph",
         t("aria_sphere_paragraph", { name: sec.text }));
       pEl._hierarchyLevel = "paragraph";
     }
 
     if (sec.Subsections) {
-      iterateSection(x1, relY, z1, d2, sec.Subsections, headerEl, name + "_Subsections_", 0);
+      iterateSection(x1, 0, z1, d2, sec.Subsections, headerEl, name + "_Subsections_", 0);
     }
 
     currentAngle += angularShare;
@@ -1153,7 +1142,7 @@ function createPortals(data) {
     ttsTextMap[portalId] = link.title;
     addAudioElement(portalId, URL.createObjectURL(createSilentWavBlob()));
 
-    var portalEl = createElement(sceneEl, px, yLevels.section, pz, "#FF00FF", "portal", "portal-" + i, portalId, true, "section",
+    var portalEl = createElement(sceneEl, px, yLevel, pz, "#FF00FF", "portal", "portal-" + i, portalId, true, "section",
       t("aria_sphere_portal", { name: link.title }));
     portalEl._portalLink = link;
     portalEl._hierarchyLevel = "portal";
@@ -1965,10 +1954,10 @@ document.addEventListener("keydown", function (event) {
   }
 });
 
-// CapsLock = play all text elements at once with distance-based volume
+// P = play all text elements sequentially with distance-based volume
 document.addEventListener("keydown", function (event) {
   if (!started) return;
-  if (event.code === "CapsLock") {
+  if (event.code === "KeyP") {
     event.preventDefault();
     playAllWithDistanceVolume();
   }
