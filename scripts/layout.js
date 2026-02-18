@@ -282,6 +282,14 @@ function drawLayout(data) {
   resumeAudio();
   setTimeout(resumeAudio, 500);
   setTimeout(resumeAudio, 1500);
+
+  // On mobile, unlock all audio on the next touch gesture
+  if (isMobile()) {
+    document.addEventListener("touchstart", function mobileUnlock() {
+      unlockAllAudio();
+      document.removeEventListener("touchstart", mobileUnlock);
+    }, { once: true });
+  }
 }
 
 // Recursively iterates through sections, creating header and paragraph elements
@@ -633,6 +641,28 @@ function distance(x1, z1, x2, z2) {
 document.addEventListener("click", resumeAudio);
 document.addEventListener("keydown", resumeAudio);
 
+//////////////// MOBILE AUDIO UNLOCK ////////////////
+// Mobile browsers require .play() to be called directly within a user gesture
+// for EACH audio element. This unlocks them for future programmatic playback.
+let audioUnlocked = false;
+function unlockAllAudio() {
+  if (audioUnlocked) return;
+  audioUnlocked = true;
+  resumeAudio();
+
+  // Unlock every <audio> element in the page
+  var allAudio = document.querySelectorAll("audio");
+  allAudio.forEach(function(audioEl) {
+    var origTime = audioEl.currentTime;
+    var origPaused = audioEl.paused;
+    audioEl.play().then(function() {
+      audioEl.pause();
+      audioEl.currentTime = origTime;
+    }).catch(function() {});
+  });
+  console.log("Mobile audio unlocked: " + allAudio.length + " elements");
+}
+
 //////////////// MOBILE TOUCH CONTROLS ////////////////
 function addMobileControls() {
   if (!isMobile()) return;
@@ -667,7 +697,7 @@ function addMobileControls() {
 
     function startMove(e) {
       e.preventDefault();
-      resumeAudio();
+      unlockAllAudio();
       activeDir = dir;
       collide = true;
       doMove();
@@ -737,7 +767,7 @@ function addMobileControls() {
     "display:flex;align-items:center;justify-content:center;";
   pauseBtn.addEventListener("touchstart", function(e) {
     e.preventDefault();
-    resumeAudio();
+    unlockAllAudio();
     if (sounds) { checkCollide = false; checkAudio(sounds); }
   }, { passive: false });
   midRow.appendChild(pauseBtn);
