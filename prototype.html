@@ -39,6 +39,8 @@
     </style>
 </head>
 <body>
+    <a href="#main-content" class="skip-link">Skip to main content</a>
+
     <!-- Mobile Navigation -->
     <div id="mobile-nav">
         <button id="mobile-menu-toggle" aria-label="Toggle navigation menu">
@@ -134,9 +136,11 @@
                 <div class="content-block">
                     <h3>Sound Guide — What You Hear in the Soundscape</h3>
                     <p>The real-time demo uses several layers of spatial audio to help you navigate and understand the article structure:</p>
+
+                    <h4>Core Audio</h4>
                     <ul>
-                        <li><strong>Section speech</strong> — When you approach a sphere, the section's text is read aloud using text-to-speech. The audio is spatialized so it sounds like it comes from the sphere's position in 3D space.</li>
-                        <li><strong>Beacon tones</strong> — Each sphere emits a quiet, looping tone so you can locate it by ear before you reach it. The pitch indicates the content's hierarchy:
+                        <li><strong>Section speech</strong> — When you approach a sphere, the section's text is read aloud using text-to-speech. Volume scales with distance (Feature 3: distance filtering) — closer sections are louder, distant ones are quieter.</li>
+                        <li><strong>Beacon tones</strong> — Each sphere emits a quiet, looping tone so you can locate it by ear. The pitch indicates hierarchy:
                             <ul>
                                 <li>Low tone (130 Hz) — Article title</li>
                                 <li>Mid-low tone (220 Hz) — Main sections (H2 headings)</li>
@@ -144,10 +148,47 @@
                                 <li>Higher tone (440 Hz) — Paragraphs</li>
                             </ul>
                         </li>
-                        <li><strong>Auto-announce</strong> — As you approach a section sphere (within about 5 units), its heading is spoken automatically so you know what content is nearby before you walk into it.</li>
-                        <li><strong>Ambient background</strong> — A soft, layered drone plays continuously to give a sense of being in a space. It combines low-frequency tones (55 Hz, 82.5 Hz, 110 Hz) with gentle filtered noise.</li>
-                        <li><strong>Boundary sound</strong> — A percussive "bump" sound plays when you reach the edge of the scene, letting you know you've hit a wall.</li>
-                        <li><strong>Welcome audio</strong> — On first entry, an instruction audio plays. Double-tap the down arrow key (or the backward button on mobile) to hear a welcome message describing the article layout.</li>
+                        <li><strong>Auto-announce</strong> — As you approach a section sphere (within about 5 units), its heading is spoken automatically. Previously visited sections are announced with "(Already visited)" to help you find new content.</li>
+                        <li><strong>Ambient background</strong> — A soft, layered drone plays continuously, combining low-frequency tones (55 Hz, 82.5 Hz, 110 Hz) with gentle filtered noise.</li>
+                        <li><strong>Section ambiences</strong> — Each major section has its own subtle ambient texture, creating audio "neighborhoods" that change as you move through the article.</li>
+                        <li><strong>Boundary sound</strong> — A percussive "bump" sound plays when you reach the edge of the scene.</li>
+                        <li><strong>Welcome audio</strong> — On first entry, an instruction audio plays. Double-tap the down arrow key (or the backward button on mobile) to hear a welcome message.</li>
+                    </ul>
+
+                    <h4>Footstep Audio</h4>
+                    <ul>
+                        <li><strong>Surface-responsive footsteps</strong> — As you move, footstep sounds play at regular intervals. The sound character changes based on your position: softer near the introduction (like grass), harder in deeper sections (like stone).</li>
+                    </ul>
+
+                    <h4>Navigation &amp; Orientation</h4>
+                    <ul>
+                        <li><strong>"Where am I?" (Tab key)</strong> — Press Tab to hear a spoken summary of your position: which section is nearest, and how many sections are to your left, right, and ahead.</li>
+                        <li><strong>Overview orbit (O key)</strong> — Press O to start a guided orbit around the entire soundscape. The camera slowly circles while announcing each section — like an audio table of contents. Press O or Escape to stop.</li>
+                        <li><strong>Breadcrumb trail</strong> — Visited spheres change color (dimmed) so you can visually track where you've been. A quiet click plays when you revisit an already-visited section.</li>
+                    </ul>
+
+                    <h4>Layout &amp; Structure</h4>
+                    <ul>
+                        <li><strong>Vertical hierarchy</strong> — The article title floats above (y=3), sections are at eye level (y=1.6), subsections lower (y=0.8), and paragraphs near the ground (y=0.3). This spatial layering gives a physical sense of content depth.</li>
+                        <li><strong>Dynamic clustering</strong> — Sections with more content spread wider in the layout. Longer sections take up more angular space, giving a spatial sense of article "weight."</li>
+                    </ul>
+
+                    <h4>Interactive Features</h4>
+                    <ul>
+                        <li><strong>Zoom into sections (Enter key)</strong> — Press Enter near a section to "zoom in." Other sections hide, and you can explore the subsections in detail. Press Escape to zoom back out to the full overview.</li>
+                        <li><strong>Link portals</strong> — Wikipedia links from the article appear as magenta spinning spheres at the edges of the scene. Walk into a portal to load the linked article as a brand-new soundscape.</li>
+                    </ul>
+
+                    <h4>Keyboard Controls</h4>
+                    <ul>
+                        <li><strong>Arrow keys</strong> — Move around the 3D space</li>
+                        <li><strong>Space</strong> — Play/pause audio</li>
+                        <li><strong>Shift</strong> — Play nearest sound</li>
+                        <li><strong>Tab</strong> — "Where am I?" position summary</li>
+                        <li><strong>O</strong> — Start/stop overview orbit tour</li>
+                        <li><strong>Enter</strong> — Zoom into nearest section</li>
+                        <li><strong>Escape</strong> — Zoom out / stop orbit</li>
+                        <li><strong>Double-tap Down Arrow</strong> — Play welcome message</li>
                     </ul>
                 </div>
 

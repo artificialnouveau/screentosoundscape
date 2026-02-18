@@ -2,9 +2,8 @@
 // Real-Time Wikipedia-to-Spatial-Audio
 // ============================================================
 
-// --- Global variables (same as layout.js) ---
+// --- Global variables ---
 let sceneEl, assetEl, sounds;
-const y = 1.6;
 const d1 = 8;
 const d2 = 8;
 const dp = 6;
@@ -39,6 +38,57 @@ var announceCooldown = 4000;
 var ambientCtx = null;
 var ambientGain = null;
 
+// --- Feature 1: Footsteps ---
+var footstepCtx = null;
+var lastCamPos = { x: 0, z: 0 };
+var footstepDistAccum = 0;
+var footstepStepSize = 0.8;
+var footstepBuffers = [];
+var footstepGain = null;
+
+// --- Feature 2: Section ambiences ---
+var sectionAmbients = {};
+
+// --- Feature 3: Distance filtering ---
+// Volume scaling applied to TTS based on distance
+
+// --- Feature 4: Where am I ---
+// Tab key handler
+
+// --- Feature 5: Dynamic clustering ---
+var sectionWeights = {};
+
+// --- Feature 6: Vertical dimension ---
+var yLevels = {
+  title: 3.0,
+  intro: 2.5,
+  section: 1.6,
+  subsection: 0.8,
+  paragraph: 0.3
+};
+
+// --- Feature 7: Orbit mode ---
+var orbitActive = false;
+var orbitAngle = 0;
+var orbitCenter = { x: 0, z: 0 };
+var orbitRadius = 15;
+var orbitSectionList = [];
+var orbitIndex = 0;
+var orbitAnimId = null;
+
+// --- Feature 8: Breadcrumb ---
+var visitedSpheres = {};
+var breadcrumbClickBlob = null;
+
+// --- Feature 9: Interactive zoom ---
+var zoomStack = [];
+var allTopLevelEls = [];
+var zoomMode = false;
+
+// --- Feature 10: Portals ---
+var portalLinks = [];
+var currentArticleData = null;
+
 // --- Language ---
 var currentLang = "en";
 
@@ -60,14 +110,22 @@ var i18n = {
     progress_done: "Done!",
     overlay_title: "Screen-to-Soundscape",
     overlay_start: "Click anywhere or press any key to start",
-    overlay_desktop: "Use arrow keys to navigate, spacebar to play/pause, shift to find nearest sound",
+    overlay_desktop: "Arrow keys: move. Space: play/pause. Shift: nearest sound. Tab: where am I. O: overview tour. Enter: zoom into section. Escape: zoom out.",
     overlay_mobile: "Use on-screen buttons to move, tilt to look around, center button to play/pause",
     aria_sphere_title: "Article title: {name}",
     aria_sphere_intro: "Introduction",
     aria_sphere_section: "Section: {name}",
     aria_sphere_subsection: "Subsection: {name}",
     aria_sphere_paragraph: "Paragraph for: {name}",
-    skip_sections: "See also|References|External links|Notes|Further reading|Bibliography|Sources"
+    aria_sphere_portal: "Portal to article: {name}",
+    skip_sections: "See also|References|External links|Notes|Further reading|Bibliography|Sources",
+    whereami: "You are near {section}. {left} sections to your left, {right} to your right, {ahead} ahead.",
+    whereami_in: "Inside section: {section}.",
+    orbit_announce: "Section {num} of {total}: {name}",
+    zoom_enter: "Entering section: {name}",
+    zoom_exit: "Returning to overview",
+    visited: "Already visited",
+    portal_loading: "Loading linked article: {name}"
   },
   fr: {
     label_url: "URL ou titre de l'article Wikipédia",
@@ -86,14 +144,22 @@ var i18n = {
     progress_done: "Terminé !",
     overlay_title: "Screen-to-Soundscape",
     overlay_start: "Cliquez n'importe où ou appuyez sur une touche pour commencer",
-    overlay_desktop: "Utilisez les flèches pour naviguer, espace pour pause, shift pour le son le plus proche",
+    overlay_desktop: "Flèches : se déplacer. Espace : pause. Shift : son le plus proche. Tab : où suis-je. O : visite. Entrée : zoom. Échap : retour.",
     overlay_mobile: "Utilisez les boutons à l'écran pour vous déplacer, inclinez pour regarder, bouton central pour pause",
     aria_sphere_title: "Titre de l'article : {name}",
     aria_sphere_intro: "Introduction",
     aria_sphere_section: "Section : {name}",
     aria_sphere_subsection: "Sous-section : {name}",
     aria_sphere_paragraph: "Paragraphe pour : {name}",
-    skip_sections: "Voir aussi|Références|Liens externes|Notes|Notes et références|Bibliographie|Sources|Articles connexes"
+    aria_sphere_portal: "Portail vers l'article : {name}",
+    skip_sections: "Voir aussi|Références|Liens externes|Notes|Notes et références|Bibliographie|Sources|Articles connexes",
+    whereami: "Vous êtes près de {section}. {left} sections à gauche, {right} à droite, {ahead} devant.",
+    whereami_in: "Dans la section : {section}.",
+    orbit_announce: "Section {num} sur {total} : {name}",
+    zoom_enter: "Entrée dans la section : {name}",
+    zoom_exit: "Retour à la vue d'ensemble",
+    visited: "Déjà visité",
+    portal_loading: "Chargement de l'article lié : {name}"
   }
 };
 
@@ -110,8 +176,6 @@ function t(key, vars) {
 function applyLanguage(lang) {
   currentLang = lang;
   document.documentElement.setAttribute("lang", lang);
-
-  // Update all elements with data-i18n attributes
   document.querySelectorAll("[data-i18n]").forEach(function (el) {
     var key = el.getAttribute("data-i18n");
     el.textContent = t(key);
@@ -134,7 +198,6 @@ window.addEventListener("DOMContentLoaded", function () {
     document.getElementById("elevenlabs-key").value = savedKey;
   }
 
-  // Language selector
   var langSelect = document.getElementById("lang-select");
   var savedLang = sessionStorage.getItem("preferred_lang");
   if (savedLang) {
@@ -147,7 +210,6 @@ window.addEventListener("DOMContentLoaded", function () {
     applyLanguage(lang);
   });
 
-  // ElevenLabs toggle with ARIA
   var toggleBtn = document.getElementById("elevenlabs-toggle");
   var elSection = document.getElementById("elevenlabs-section");
   toggleBtn.addEventListener("click", function () {
@@ -188,8 +250,10 @@ async function startGeneration() {
     updateProgress(t("progress_fetch"), 5);
 
     var data = await fetchWikipedia(urlInput);
+    currentArticleData = data;
     console.log("Parsed Wikipedia data:", data);
     console.log("Sections found:", Object.keys(data.Sections).length);
+    console.log("Portal links found:", data._links ? data._links.length : 0);
     updateProgress(t("progress_fetched"), 15);
 
     await generateSpeech(data, elKey);
@@ -198,12 +262,12 @@ async function startGeneration() {
     await delay(200);
 
     createBeaconTones();
+    createBreadcrumbClick();
     buildScene(data);
     updateProgress(t("progress_done"), 100);
 
     await delay(400);
     document.getElementById("input-screen").style.display = "none";
-    // Reveal A-Frame scene to assistive tech
     document.querySelector("a-scene").setAttribute("aria-hidden", "false");
     showStartOverlay();
   } catch (err) {
@@ -278,6 +342,50 @@ function writeString(view, offset, str) {
 }
 
 // ============================================================
+// FEATURE 8: BREADCRUMB CLICK SOUND
+// ============================================================
+function createBreadcrumbClick() {
+  var sampleRate = 22050;
+  var duration = 0.08;
+  var numSamples = Math.floor(sampleRate * duration);
+  var dataLength = numSamples * 2;
+  var totalLength = 44 + dataLength;
+  var buf = new ArrayBuffer(totalLength);
+  var view = new DataView(buf);
+
+  writeString(view, 0, "RIFF");
+  view.setUint32(4, totalLength - 8, true);
+  writeString(view, 8, "WAVE");
+  writeString(view, 12, "fmt ");
+  view.setUint32(16, 16, true);
+  view.setUint16(20, 1, true);
+  view.setUint16(22, 1, true);
+  view.setUint32(24, sampleRate, true);
+  view.setUint32(28, sampleRate * 2, true);
+  view.setUint16(32, 2, true);
+  view.setUint16(34, 16, true);
+  writeString(view, 36, "data");
+  view.setUint32(40, dataLength, true);
+
+  var offset = 44;
+  for (var i = 0; i < numSamples; i++) {
+    var env = Math.exp(-i / (sampleRate * 0.015));
+    var sample = Math.sin(2 * Math.PI * 1200 * (i / sampleRate)) * 0.15 * env;
+    var val = Math.max(-1, Math.min(1, sample));
+    view.setInt16(offset, val < 0 ? val * 0x8000 : val * 0x7FFF, true);
+    offset += 2;
+  }
+
+  breadcrumbClickBlob = new Blob([buf], { type: "audio/wav" });
+  var url = URL.createObjectURL(breadcrumbClickBlob);
+  var audioEl = document.createElement("audio");
+  audioEl.setAttribute("id", "breadcrumb-click");
+  audioEl.setAttribute("preload", "auto");
+  audioEl.setAttribute("src", url);
+  assetEl.appendChild(audioEl);
+}
+
+// ============================================================
 // AMBIENT BACKGROUND
 // ============================================================
 function startAmbient() {
@@ -297,9 +405,9 @@ function startAmbient() {
 
     var bufferSize = ambientCtx.sampleRate * 2;
     var noiseBuffer = ambientCtx.createBuffer(1, bufferSize, ambientCtx.sampleRate);
-    var data = noiseBuffer.getChannelData(0);
+    var noiseData = noiseBuffer.getChannelData(0);
     for (var i = 0; i < bufferSize; i++) {
-      data[i] = (Math.random() * 2 - 1) * 0.5;
+      noiseData[i] = (Math.random() * 2 - 1) * 0.5;
     }
     var noiseSource = ambientCtx.createBufferSource();
     noiseSource.buffer = noiseBuffer;
@@ -322,18 +430,167 @@ function startAmbient() {
 }
 
 // ============================================================
+// FEATURE 1: FOOTSTEP AUDIO
+// ============================================================
+function initFootsteps() {
+  try {
+    footstepCtx = ambientCtx || new (window.AudioContext || window.webkitAudioContext)();
+    footstepGain = footstepCtx.createGain();
+    footstepGain.gain.value = 0.12;
+    footstepGain.connect(footstepCtx.destination);
+
+    // Create two footstep buffer variants (short noise bursts with different filtering)
+    var variants = [
+      { freq: 300, q: 2, decay: 0.03 },
+      { freq: 400, q: 3, decay: 0.025 }
+    ];
+    variants.forEach(function (v) {
+      var sr = footstepCtx.sampleRate;
+      var len = Math.floor(sr * 0.06);
+      var buffer = footstepCtx.createBuffer(1, len, sr);
+      var data = buffer.getChannelData(0);
+      for (var i = 0; i < len; i++) {
+        var env = Math.exp(-i / (sr * v.decay));
+        data[i] = (Math.random() * 2 - 1) * env;
+      }
+      footstepBuffers.push(buffer);
+    });
+  } catch (e) {
+    console.warn("Footstep init failed:", e);
+  }
+}
+
+function playFootstep() {
+  if (!footstepCtx || footstepBuffers.length === 0) return;
+  try {
+    if (footstepCtx.state === "suspended") footstepCtx.resume();
+    var bufIdx = Math.floor(Math.random() * footstepBuffers.length);
+    var source = footstepCtx.createBufferSource();
+    source.buffer = footstepBuffers[bufIdx];
+
+    // Vary pitch slightly for natural feel
+    source.playbackRate.value = 0.9 + Math.random() * 0.2;
+
+    // Apply surface-based filtering: near intro (z > -10) = softer, deeper (z < -20) = harder
+    var camZ = 0;
+    try { camZ = document.querySelector("[camera]").object3D.position.z; } catch (e) {}
+    var biquad = footstepCtx.createBiquadFilter();
+    biquad.type = "bandpass";
+    if (camZ > -10) {
+      biquad.frequency.value = 250; // soft/grass
+      biquad.Q.value = 1;
+    } else if (camZ < -25) {
+      biquad.frequency.value = 600; // hard/stone
+      biquad.Q.value = 3;
+    } else {
+      biquad.frequency.value = 400; // default
+      biquad.Q.value = 2;
+    }
+
+    source.connect(biquad);
+    biquad.connect(footstepGain);
+    source.start();
+  } catch (e) {}
+}
+
+function updateFootsteps() {
+  if (!started || !footstepCtx) return;
+  try {
+    var cam = document.querySelector("[camera]");
+    if (!cam) return;
+    var cx = cam.object3D.position.x;
+    var cz = cam.object3D.position.z;
+    var dx = cx - lastCamPos.x;
+    var dz = cz - lastCamPos.z;
+    var moved = Math.sqrt(dx * dx + dz * dz);
+    lastCamPos.x = cx;
+    lastCamPos.z = cz;
+
+    footstepDistAccum += moved;
+    if (footstepDistAccum >= footstepStepSize) {
+      footstepDistAccum -= footstepStepSize;
+      playFootstep();
+    }
+  } catch (e) {}
+}
+
+// ============================================================
+// FEATURE 2: SECTION AMBIENT TEXTURES
+// ============================================================
+function startSectionAmbients(data) {
+  if (!ambientCtx) return;
+  var sectionKeys = Object.keys(data.Sections);
+  var textures = [
+    { type: "sine", freq: 180, detune: 5 },
+    { type: "triangle", freq: 200, detune: -3 },
+    { type: "sine", freq: 160, detune: 7 },
+    { type: "triangle", freq: 220, detune: -5 },
+    { type: "sine", freq: 140, detune: 10 },
+    { type: "triangle", freq: 190, detune: 3 },
+    { type: "sine", freq: 170, detune: -7 },
+    { type: "triangle", freq: 210, detune: 5 }
+  ];
+
+  sectionKeys.forEach(function (key, idx) {
+    var tex = textures[idx % textures.length];
+    try {
+      var osc = ambientCtx.createOscillator();
+      osc.type = tex.type;
+      osc.frequency.value = tex.freq;
+      osc.detune.value = tex.detune;
+
+      var gain = ambientCtx.createGain();
+      gain.gain.value = 0; // start silent, modulated by distance
+
+      var filter = ambientCtx.createBiquadFilter();
+      filter.type = "lowpass";
+      filter.frequency.value = 300;
+      filter.Q.value = 0.5;
+
+      osc.connect(filter);
+      filter.connect(gain);
+      gain.connect(ambientCtx.destination);
+      osc.start();
+
+      sectionAmbients[key] = { gain: gain, osc: osc };
+    } catch (e) {}
+  });
+}
+
+function updateSectionAmbients() {
+  if (!ambientCtx || Object.keys(sectionAmbients).length === 0) return;
+  try {
+    var cam = document.querySelector("[camera]");
+    if (!cam) return;
+    var cx = cam.object3D.position.x;
+    var cz = cam.object3D.position.z;
+
+    // Find spheres that are section headers and update their ambient volume
+    document.querySelectorAll("a-sphere.header").forEach(function (el) {
+      var worldpos = new THREE.Vector3();
+      el.getObject3D("mesh").getWorldPosition(worldpos);
+      var dist = distance(cx, cz, worldpos.x, worldpos.z);
+      var sectionKey = el._sectionKey;
+      if (sectionKey && sectionAmbients[sectionKey]) {
+        // Volume inversely proportional to distance, max 0.02
+        var vol = Math.max(0, Math.min(0.02, 0.02 * (1 - dist / 20)));
+        sectionAmbients[sectionKey].gain.gain.setTargetAtTime(vol, ambientCtx.currentTime, 0.1);
+      }
+    });
+  } catch (e) {}
+}
+
+// ============================================================
 // WIKIPEDIA FETCH & PARSE
 // ============================================================
 async function fetchWikipedia(input) {
   var title = input;
-  // Detect language from URL or use selected language
   var wikiLang = currentLang;
   var match = input.match(/([a-z]{2,3})\.wikipedia\.org\/wiki\/([^#?]+)/);
   if (match) {
-    wikiLang = match[1]; // use the language from the URL
+    wikiLang = match[1];
     title = decodeURIComponent(match[2]).replace(/_/g, " ");
   } else {
-    // Plain text title — could also be a non-language URL
     var urlMatch = input.match(/wikipedia\.org\/wiki\/([^#?]+)/);
     if (urlMatch) {
       title = decodeURIComponent(urlMatch[1]).replace(/_/g, " ");
@@ -343,7 +600,7 @@ async function fetchWikipedia(input) {
   var apiUrl =
     "https://" + wikiLang + ".wikipedia.org/w/api.php?action=parse&page=" +
     encodeURIComponent(title) +
-    "&format=json&origin=*&prop=text|displaytitle";
+    "&format=json&origin=*&prop=text|displaytitle|links";
 
   var resp = await fetch(apiUrl);
   if (!resp.ok) throw new Error("Wikipedia API error: " + resp.status);
@@ -353,7 +610,20 @@ async function fetchWikipedia(input) {
   var html = json.parse.text["*"];
   var pageTitle = json.parse.title;
 
-  return parseWikipediaHTML(pageTitle, html);
+  // Feature 10: Extract internal links for portals
+  var links = [];
+  if (json.parse.links) {
+    json.parse.links.forEach(function (link) {
+      if (link.ns === 0 && link.exists !== undefined) {
+        links.push({ title: link["*"], lang: wikiLang });
+      }
+    });
+  }
+
+  var data = parseWikipediaHTML(pageTitle, html);
+  data._links = links.slice(0, 8); // Limit to 8 portal links
+  data._lang = wikiLang;
+  return data;
 }
 
 function parseWikipediaHTML(pageTitle, html) {
@@ -402,7 +672,6 @@ function parseWikipediaHTML(pageTitle, html) {
 
   if (sectionStart < 0) return data;
 
-  // Build skip regex from i18n
   var skipPattern = new RegExp("^(" + t("skip_sections") + ")$", "i");
   var currentH2 = null;
   var currentH3 = null;
@@ -466,6 +735,19 @@ function parseWikipediaHTML(pageTitle, html) {
         }
       }
     }
+  }
+
+  // Feature 5: Calculate section weights for dynamic clustering
+  for (var sk in data.Sections) {
+    var secData = data.Sections[sk];
+    var weight = (secData.P && secData.P.text) ? secData.P.text.length : 0;
+    if (secData.Subsections) {
+      for (var ssk in secData.Subsections) {
+        weight += secData.Subsections[ssk].P ? secData.Subsections[ssk].P.text.length : 0;
+        weight += 100; // weight for having a subsection
+      }
+    }
+    sectionWeights[sk] = Math.max(weight, 50);
   }
 
   return data;
@@ -588,7 +870,6 @@ function pickBestVoice() {
 }
 
 function doPickVoice(voices) {
-  // Filter by selected language
   var langPrefix = currentLang;
   var langVoices = voices.filter(function (v) {
     return v.lang.substring(0, 2).toLowerCase() === langPrefix;
@@ -610,10 +891,9 @@ function doPickVoice(voices) {
 
 // --- ElevenLabs ---
 async function generateElevenLabs(blocks, apiKey) {
-  var voiceId = "21m00Tcm4TlvDq8ikWAM"; // Rachel (English)
-  // For French, use a French voice if available
+  var voiceId = "21m00Tcm4TlvDq8ikWAM";
   if (currentLang === "fr") {
-    voiceId = "pFZP5JQG7iQjIQuC4Bku"; // Lily (French, multilingual)
+    voiceId = "pFZP5JQG7iQjIQuC4Bku";
   }
   var batchSize = 4;
 
@@ -679,6 +959,8 @@ function addAudioElement(id, srcUrl) {
 // ============================================================
 function buildScene(data) {
   drawLayout(data);
+  startSectionAmbients(data);
+  createPortals(data);
 }
 
 function drawLayout(data) {
@@ -687,17 +969,50 @@ function drawLayout(data) {
   var titleAudioId = data.Title._id;
   var introAudioId = data.Introduction._id;
 
-  var titleEl = createElement(sceneEl, x0, y, z, "#EF2D5E", "title", "title", titleAudioId, true, "title",
+  // Feature 6: Vertical dimension — title above, intro slightly below
+  var titleEl = createElement(sceneEl, x0, yLevels.title, z, "#EF2D5E", "title", "title", titleAudioId, true, "title",
     t("aria_sphere_title", { name: data.Title.text }));
-  var introEl = createElement(titleEl, x0, 0, z, "#EF2D5E", "intro", "intro", introAudioId, true, "title",
+  titleEl._hierarchyLevel = "title";
+
+  var introEl = createElement(titleEl, x0, yLevels.intro - yLevels.title, z, "#EF2D5E", "intro", "intro", introAudioId, true, "title",
     t("aria_sphere_intro"));
+  introEl._hierarchyLevel = "intro";
 
-  createElement(sceneEl, minX - margin, y, z0 + margin, "#F0FFFF", "sound-cues", "bound", "bound-cue", false, null, "Boundary");
+  createElement(sceneEl, minX - margin, yLevels.section, z0 + margin, "#F0FFFF", "sound-cues", "bound", "bound-cue", false, null, "Boundary");
 
-  iterateSection(x0, 0, z, d1, data.Sections, introEl, "Sections_", 0);
+  // Feature 5: Dynamic clustering — weight angular spread by content length
+  iterateSectionWeighted(x0, 0, z, d1, data.Sections, introEl, "Sections_", 0);
+
+  // Build orbit section list for Feature 7
+  orbitSectionList = [];
+  document.querySelectorAll("a-sphere.header").forEach(function (el) {
+    var audioId = getAudioIdFromSound(el);
+    if (audioId && headingTextMap[audioId]) {
+      orbitSectionList.push(el);
+    }
+  });
+
+  // Track top-level elements for Feature 9 zoom
+  allTopLevelEls = Array.from(document.querySelectorAll("a-sphere.title, a-sphere.intro, a-sphere.header, a-sphere.p"));
 
   sounds = document.querySelectorAll("a-sphere");
   console.log("Total spheres created:", sounds.length);
+
+  // Calculate orbit center
+  var sumX = 0, sumZ = 0, count = 0;
+  sounds.forEach(function (s) {
+    var wp = new THREE.Vector3();
+    try {
+      s.getObject3D("mesh").getWorldPosition(wp);
+      sumX += wp.x;
+      sumZ += wp.z;
+      count++;
+    } catch (e) {}
+  });
+  if (count > 0) {
+    orbitCenter.x = sumX / count;
+    orbitCenter.z = sumZ / count;
+  }
 
   document.querySelector("[camera]").setAttribute("play-proxi", "");
 
@@ -709,10 +1024,13 @@ function drawLayout(data) {
   });
 
   document.addEventListener("keydown", function (event) {
-    collide = true;
+    if (event.code !== "Tab" && event.code !== "KeyO" && event.code !== "Enter" && event.code !== "Escape") {
+      collide = true;
+    }
   });
 
   document.querySelector("[camera]").setAttribute("hit-bounds", "");
+  document.querySelector("[camera]").setAttribute("footstep-tracker", "");
 
   resumeAudio();
   setTimeout(resumeAudio, 500);
@@ -726,6 +1044,62 @@ function drawLayout(data) {
   }
 }
 
+// Feature 5: Weighted section iteration
+function iterateSectionWeighted(x, baseY, z, d, section, parentEl, prename, angle) {
+  var keys = Object.keys(section);
+  var numSections = keys.length;
+  if (numSections === 0) return;
+
+  // Calculate total weight for proportional angular distribution
+  var totalWeight = 0;
+  keys.forEach(function (key) {
+    totalWeight += sectionWeights[key] || 100;
+  });
+
+  var currentAngle = angle;
+
+  keys.forEach(function (key, i) {
+    var sec = section[key];
+    var name = prename + key.replace(":", "").replaceAll(" ", "_");
+    var headerAudioId = sec._id;
+    var level = key.startsWith("H3") ? "subsection" : "section";
+    var ariaKey = key.startsWith("H3") ? "aria_sphere_subsection" : "aria_sphere_section";
+
+    // Proportional angle based on weight
+    var weight = sectionWeights[key] || 100;
+    var angularShare = (weight / totalWeight) * Math.PI;
+    var midAngle = currentAngle + angularShare / 2;
+
+    var x1 = -d * Math.cos(midAngle);
+    var z1 = -d / 2 - d * Math.sin(midAngle);
+    var yPos = level === "subsection" ? yLevels.subsection : yLevels.section;
+
+    // Y is relative to parent
+    var relY = yPos - (parentEl === sceneEl ? 0 : yLevels.intro);
+
+    var headerEl = createElement(parentEl, x1, relY, z1, "#00FFFF", "header", key + i, headerAudioId, true, level,
+      t(ariaKey, { name: sec.text }));
+    headerEl._sectionKey = key;
+    headerEl._hierarchyLevel = level;
+    headerEl._sectionData = sec;
+
+    if (sec.P && sec.P.text && sec.P._id) {
+      var xp = -dp * Math.cos(midAngle);
+      var zp = -dp * Math.sin(midAngle);
+      var pEl = createElement(headerEl, xp, yLevels.paragraph - yPos, zp, "#FFFF00", "p", key + i + "_p", sec.P._id, true, "paragraph",
+        t("aria_sphere_paragraph", { name: sec.text }));
+      pEl._hierarchyLevel = "paragraph";
+    }
+
+    if (sec.Subsections) {
+      iterateSection(x1, relY, z1, d2, sec.Subsections, headerEl, name + "_Subsections_", 0);
+    }
+
+    currentAngle += angularShare;
+  });
+}
+
+// Original iterateSection for subsections (non-weighted)
 function iterateSection(x, y, z, d, section, parentEl, prename, angle) {
   var numSections = Object.keys(section).length;
   var degStep = numSections === 1 ? Math.PI / 2 : Math.PI / (numSections - 1);
@@ -742,12 +1116,16 @@ function iterateSection(x, y, z, d, section, parentEl, prename, angle) {
 
     var headerEl = createElement(parentEl, x1, y, z1, "#00FFFF", "header", key + i, headerAudioId, true, level,
       t(ariaKey, { name: sec.text }));
+    headerEl._sectionKey = key;
+    headerEl._hierarchyLevel = level;
+    headerEl._sectionData = sec;
 
     if (sec.P && sec.P.text && sec.P._id) {
       var xp = -dp * Math.cos(degStep * i + angle);
       var zp = -dp * Math.sin(degStep * i + angle);
-      createElement(headerEl, xp, y, zp, "#FFFF00", "p", key + i + "_p", sec.P._id, true, "paragraph",
+      var pEl = createElement(headerEl, xp, y, zp, "#FFFF00", "p", key + i + "_p", sec.P._id, true, "paragraph",
         t("aria_sphere_paragraph", { name: sec.text }));
+      pEl._hierarchyLevel = "paragraph";
     }
 
     if (sec.Subsections) {
@@ -787,6 +1165,7 @@ function createElement(parentEl, x, y, z, color, className, id, soundId, autoPla
   }
 
   sphereEl._soundAudioId = soundId;
+  sphereEl._originalColor = color;
 
   if (autoPlay) {
     sphereEl.setAttribute("world-pos", "");
@@ -796,6 +1175,442 @@ function createElement(parentEl, x, y, z, color, className, id, soundId, autoPla
   parentEl.appendChild(sphereEl);
   elCount++;
   return sphereEl;
+}
+
+// ============================================================
+// FEATURE 10: PORTALS (Links to other articles)
+// ============================================================
+function createPortals(data) {
+  if (!data._links || data._links.length === 0) return;
+
+  portalLinks = data._links;
+  var portalCount = portalLinks.length;
+
+  // Place portals in a ring at the far edge of the scene
+  var portalRadius = Math.max(Math.abs(minX), Math.abs(maxX), Math.abs(minZ)) + 5;
+  if (portalRadius < 15) portalRadius = 15;
+
+  portalLinks.forEach(function (link, i) {
+    var angle = (i / portalCount) * Math.PI * 2;
+    var px = portalRadius * Math.cos(angle);
+    var pz = -portalRadius * Math.abs(Math.sin(angle)) - 5;
+
+    // Create portal audio placeholder
+    var portalId = sanitizeId("portal_" + link.title);
+    ttsTextMap[portalId] = link.title;
+    addAudioElement(portalId, URL.createObjectURL(createSilentWavBlob()));
+
+    var portalEl = createElement(sceneEl, px, yLevels.section, pz, "#FF00FF", "portal", "portal-" + i, portalId, true, "section",
+      t("aria_sphere_portal", { name: link.title }));
+    portalEl._portalLink = link;
+    portalEl._hierarchyLevel = "portal";
+
+    // Make portal visually distinct — larger, with animation
+    portalEl.setAttribute("radius", "0.8");
+    portalEl.setAttribute("animation", "property: rotation; to: 0 360 0; loop: true; dur: 8000; easing: linear");
+  });
+
+  // Update sounds after adding portals
+  sounds = document.querySelectorAll("a-sphere");
+}
+
+// ============================================================
+// FEATURE 7: ORBIT / OVERVIEW MODE
+// ============================================================
+function startOrbit() {
+  if (orbitActive || orbitSectionList.length === 0) return;
+  orbitActive = true;
+  orbitIndex = 0;
+  orbitAngle = 0;
+
+  // Disable normal movement
+  var cameraEl = document.querySelector("a-camera");
+  if (cameraEl) {
+    cameraEl.setAttribute("wasd-controls", "enabled: false");
+    cameraEl.setAttribute("look-controls", "enabled: false");
+  }
+
+  announceOrbitSection();
+  doOrbitStep();
+}
+
+function stopOrbit() {
+  if (!orbitActive) return;
+  orbitActive = false;
+  if (orbitAnimId) cancelAnimationFrame(orbitAnimId);
+  orbitAnimId = null;
+
+  var cameraEl = document.querySelector("a-camera");
+  if (cameraEl) {
+    cameraEl.setAttribute("wasd-controls", "enabled: true");
+    cameraEl.setAttribute("look-controls", "enabled: true");
+  }
+  speechSynthesis.cancel();
+}
+
+function doOrbitStep() {
+  if (!orbitActive) return;
+
+  var speed = 0.005;
+  orbitAngle += speed;
+
+  var cam = document.querySelector("a-camera");
+  if (cam) {
+    cam.object3D.position.x = orbitCenter.x + orbitRadius * Math.cos(orbitAngle);
+    cam.object3D.position.z = orbitCenter.z + orbitRadius * Math.sin(orbitAngle);
+    cam.object3D.position.y = yLevels.section + 2;
+
+    // Look at center
+    cam.object3D.lookAt(new THREE.Vector3(orbitCenter.x, yLevels.section, orbitCenter.z));
+  }
+
+  // Advance to next section every ~3 seconds worth of frames
+  if (orbitAngle > (orbitIndex + 1) * (Math.PI * 2 / Math.max(orbitSectionList.length, 1))) {
+    orbitIndex++;
+    if (orbitIndex >= orbitSectionList.length) {
+      stopOrbit();
+      return;
+    }
+    announceOrbitSection();
+  }
+
+  orbitAnimId = requestAnimationFrame(doOrbitStep);
+}
+
+function announceOrbitSection() {
+  if (orbitIndex >= orbitSectionList.length) return;
+  var el = orbitSectionList[orbitIndex];
+  var audioId = getAudioIdFromSound(el);
+  var name = headingTextMap[audioId] || "Unknown";
+
+  speechSynthesis.cancel();
+  setTimeout(function () {
+    var utterance = new SpeechSynthesisUtterance(
+      t("orbit_announce", { num: orbitIndex + 1, total: orbitSectionList.length, name: name })
+    );
+    if (ttsVoice) utterance.voice = ttsVoice;
+    utterance.lang = currentLang;
+    utterance.rate = 1.2;
+    speechSynthesis.speak(utterance);
+  }, 100);
+}
+
+// ============================================================
+// FEATURE 4: WHERE AM I (Tab key)
+// ============================================================
+function speakWhereAmI() {
+  var cam = document.querySelector("[camera]");
+  if (!cam) return;
+  var cx = cam.object3D.position.x;
+  var cz = cam.object3D.position.z;
+
+  // If in zoom mode, announce the zoomed section
+  if (zoomMode && zoomStack.length > 0) {
+    var zoomSection = zoomStack[zoomStack.length - 1];
+    var utterance = new SpeechSynthesisUtterance(t("whereami_in", { section: zoomSection.name }));
+    if (ttsVoice) utterance.voice = ttsVoice;
+    utterance.lang = currentLang;
+    speechSynthesis.cancel();
+    setTimeout(function () { speechSynthesis.speak(utterance); }, 50);
+    return;
+  }
+
+  // Find nearest section sphere
+  var nearest = null;
+  var nearestDist = Infinity;
+  var leftCount = 0, rightCount = 0, aheadCount = 0;
+
+  document.querySelectorAll("a-sphere.header, a-sphere.title, a-sphere.intro").forEach(function (el) {
+    var wp = new THREE.Vector3();
+    try {
+      el.getObject3D("mesh").getWorldPosition(wp);
+      var dist = distance(cx, cz, wp.x, wp.z);
+      if (dist < nearestDist) {
+        nearestDist = dist;
+        nearest = el;
+      }
+      // Count sections in different directions
+      if (wp.x < cx - 1) leftCount++;
+      else if (wp.x > cx + 1) rightCount++;
+      if (wp.z < cz - 1) aheadCount++;
+    } catch (e) {}
+  });
+
+  var nearestName = "unknown";
+  if (nearest) {
+    var audioId = getAudioIdFromSound(nearest);
+    nearestName = headingTextMap[audioId] || "unknown";
+  }
+
+  var text = t("whereami", {
+    section: nearestName,
+    left: leftCount,
+    right: rightCount,
+    ahead: aheadCount
+  });
+
+  speechSynthesis.cancel();
+  setTimeout(function () {
+    var utt = new SpeechSynthesisUtterance(text);
+    if (ttsVoice) utt.voice = ttsVoice;
+    utt.lang = currentLang;
+    utt.rate = 1.1;
+    speechSynthesis.speak(utt);
+  }, 50);
+}
+
+// ============================================================
+// FEATURE 9: INTERACTIVE ZOOM
+// ============================================================
+function enterZoom() {
+  var cam = document.querySelector("[camera]");
+  if (!cam) return;
+  var cx = cam.object3D.position.x;
+  var cz = cam.object3D.position.z;
+
+  // Find nearest section header sphere
+  var nearest = null;
+  var nearestDist = Infinity;
+  document.querySelectorAll("a-sphere.header").forEach(function (el) {
+    if (el._hierarchyLevel !== "section") return;
+    var wp = new THREE.Vector3();
+    try {
+      el.getObject3D("mesh").getWorldPosition(wp);
+      var dist = distance(cx, cz, wp.x, wp.z);
+      if (dist < nearestDist && dist < 10) {
+        nearestDist = dist;
+        nearest = el;
+      }
+    } catch (e) {}
+  });
+
+  if (!nearest || !nearest._sectionData) return;
+
+  var sectionData = nearest._sectionData;
+  var sectionName = headingTextMap[getAudioIdFromSound(nearest)] || sectionData.text;
+
+  // Store camera position for returning
+  zoomStack.push({
+    camX: cx,
+    camY: cam.object3D.position.y,
+    camZ: cz,
+    name: sectionName,
+    targetEl: nearest
+  });
+  zoomMode = true;
+
+  // Hide all spheres except this section's children
+  sounds.forEach(function (s) {
+    if (s === nearest) return;
+    // Check if s is a child of nearest
+    var isChild = false;
+    var parent = s.parentElement;
+    while (parent) {
+      if (parent === nearest) { isChild = true; break; }
+      parent = parent.parentElement;
+    }
+    if (!isChild) {
+      s.object3D.visible = false;
+      muteBeacon(s);
+    }
+  });
+
+  // Move camera to near the section
+  var wp = new THREE.Vector3();
+  nearest.getObject3D("mesh").getWorldPosition(wp);
+  cam.object3D.position.set(wp.x, yLevels.section, wp.z + 3);
+
+  // Announce
+  speechSynthesis.cancel();
+  setTimeout(function () {
+    var utt = new SpeechSynthesisUtterance(t("zoom_enter", { name: sectionName }));
+    if (ttsVoice) utt.voice = ttsVoice;
+    utt.lang = currentLang;
+    speechSynthesis.speak(utt);
+  }, 50);
+}
+
+function exitZoom() {
+  if (!zoomMode || zoomStack.length === 0) return;
+
+  var state = zoomStack.pop();
+  if (zoomStack.length === 0) zoomMode = false;
+
+  // Show all spheres again
+  sounds.forEach(function (s) {
+    s.object3D.visible = true;
+    unmuteBeacon(s);
+  });
+
+  // Restore camera position
+  var cam = document.querySelector("[camera]");
+  if (cam) {
+    cam.object3D.position.set(state.camX, state.camY, state.camZ);
+  }
+
+  speechSynthesis.cancel();
+  setTimeout(function () {
+    var utt = new SpeechSynthesisUtterance(t("zoom_exit"));
+    if (ttsVoice) utt.voice = ttsVoice;
+    utt.lang = currentLang;
+    speechSynthesis.speak(utt);
+  }, 50);
+}
+
+// ============================================================
+// FEATURE 8: BREADCRUMB — mark visited spheres
+// ============================================================
+function markVisited(sphereEl) {
+  var audioId = getAudioIdFromSound(sphereEl);
+  if (!audioId) return;
+
+  if (visitedSpheres[audioId]) {
+    // Already visited — play a quiet click to indicate
+    playBreadcrumbClick();
+    return;
+  }
+
+  visitedSpheres[audioId] = true;
+
+  // Change color to a dimmer version to show it's been visited
+  var origColor = sphereEl._originalColor || "#00FFFF";
+  // Shift toward grey
+  sphereEl.setAttribute("color", shiftToGrey(origColor));
+  // Add a subtle opacity change
+  sphereEl.setAttribute("opacity", "0.7");
+}
+
+function shiftToGrey(hexColor) {
+  // Simple color shift: blend with grey
+  try {
+    var r = parseInt(hexColor.substring(1, 3), 16);
+    var g = parseInt(hexColor.substring(3, 5), 16);
+    var b = parseInt(hexColor.substring(5, 7), 16);
+    r = Math.round(r * 0.5 + 128 * 0.5);
+    g = Math.round(g * 0.5 + 128 * 0.5);
+    b = Math.round(b * 0.5 + 128 * 0.5);
+    return "#" + ((1 << 24) | (r << 16) | (g << 8) | b).toString(16).slice(1);
+  } catch (e) {
+    return "#888888";
+  }
+}
+
+function playBreadcrumbClick() {
+  try {
+    var clickEl = document.getElementById("breadcrumb-click");
+    if (clickEl) {
+      clickEl.currentTime = 0;
+      clickEl.volume = 0.2;
+      clickEl.play().catch(function () {});
+    }
+  } catch (e) {}
+}
+
+// ============================================================
+// FEATURE 10: PORTAL NAVIGATION
+// ============================================================
+async function activatePortal(portalEl) {
+  if (!portalEl._portalLink) return;
+  var link = portalEl._portalLink;
+
+  // Announce loading
+  speechSynthesis.cancel();
+  var utt = new SpeechSynthesisUtterance(t("portal_loading", { name: link.title }));
+  if (ttsVoice) utt.voice = ttsVoice;
+  utt.lang = currentLang;
+  speechSynthesis.speak(utt);
+
+  // Show loading overlay
+  var overlay = document.createElement("div");
+  overlay.id = "portal-loading";
+  overlay.style.cssText =
+    "position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.8);" +
+    "display:flex;align-items:center;justify-content:center;z-index:9999;color:white;" +
+    "font-family:sans-serif;font-size:1.5rem;";
+  overlay.textContent = t("portal_loading", { name: link.title });
+  document.body.appendChild(overlay);
+
+  try {
+    // Clear existing scene
+    clearScene();
+
+    // Fetch new article
+    var apiUrl =
+      "https://" + link.lang + ".wikipedia.org/w/api.php?action=parse&page=" +
+      encodeURIComponent(link.title) +
+      "&format=json&origin=*&prop=text|displaytitle|links";
+
+    var resp = await fetch(apiUrl);
+    var json = await resp.json();
+    if (json.error) throw new Error(json.error.info);
+
+    var html = json.parse.text["*"];
+    var pageTitle = json.parse.title;
+    var data = parseWikipediaHTML(pageTitle, html);
+
+    // Get new links
+    var links = [];
+    if (json.parse.links) {
+      json.parse.links.forEach(function (l) {
+        if (l.ns === 0 && l.exists !== undefined) {
+          links.push({ title: l["*"], lang: link.lang });
+        }
+      });
+    }
+    data._links = links.slice(0, 8);
+    data._lang = link.lang;
+    currentArticleData = data;
+
+    // Generate speech for new article
+    var elKey = sessionStorage.getItem("elevenlabs_key") || "";
+    await generateSpeech(data, elKey);
+
+    // Rebuild scene
+    createBeaconTones();
+    createBreadcrumbClick();
+    buildScene(data);
+
+    overlay.remove();
+    resumeAudio();
+    startAmbient();
+  } catch (err) {
+    console.error("Portal navigation failed:", err);
+    overlay.textContent = "Failed to load article: " + err.message;
+    setTimeout(function () { overlay.remove(); }, 3000);
+  }
+}
+
+function clearScene() {
+  // Remove all spheres
+  document.querySelectorAll("a-sphere").forEach(function (el) { el.remove(); });
+
+  // Clear audio assets (except bound-cue)
+  var assets = document.querySelector("a-assets");
+  Array.from(assets.children).forEach(function (el) {
+    if (el.id !== "bound-cue") el.remove();
+  });
+
+  // Reset globals
+  sounds = null;
+  ttsTextMap = {};
+  headingTextMap = {};
+  visitedSpheres = {};
+  sectionWeights = {};
+  sectionAmbients = {};
+  orbitSectionList = [];
+  allTopLevelEls = [];
+  portalLinks = [];
+  elCount = 0;
+  minX = 0; maxX = 0; minZ = 0;
+  zoomStack = [];
+  zoomMode = false;
+  ttsTotal = 0;
+  ttsDone = 0;
+
+  // Stop section ambients
+  for (var key in sectionAmbients) {
+    try { sectionAmbients[key].osc.stop(); } catch (e) {}
+  }
 }
 
 // ============================================================
@@ -810,10 +1625,10 @@ function showStartOverlay() {
     "position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.8);" +
     "display:flex;align-items:center;justify-content:center;z-index:9999;cursor:pointer;";
   overlay.innerHTML =
-    '<div style="color:white;font-family:sans-serif;text-align:center;">' +
+    '<div style="color:white;font-family:sans-serif;text-align:center;max-width:600px;padding:20px;">' +
     '<h1 style="font-size:2rem;margin-bottom:1rem;">' + t("overlay_title") + '</h1>' +
     '<p style="font-size:1.2rem;">' + t("overlay_start") + '</p>' +
-    '<p style="font-size:0.9rem;margin-top:1rem;opacity:0.7;">' +
+    '<p style="font-size:0.85rem;margin-top:1rem;opacity:0.7;line-height:1.5;">' +
     (isMobile() ? t("overlay_mobile") : t("overlay_desktop")) +
     "</p></div>";
   document.body.appendChild(overlay);
@@ -833,6 +1648,7 @@ function showStartOverlay() {
     }
 
     startAmbient();
+    initFootsteps();
     resumeAudio();
   }
 
@@ -884,6 +1700,10 @@ function resumeAudio() {
   try {
     if (ambientCtx && ambientCtx.state === "suspended") ambientCtx.resume();
   } catch (e) {}
+
+  try {
+    if (footstepCtx && footstepCtx.state === "suspended") footstepCtx.resume();
+  } catch (e) {}
 }
 
 function isWebAudioWorking(el) {
@@ -914,19 +1734,38 @@ function getAudioElFromSound(el) {
   return null;
 }
 
+// Feature 3: Distance-based volume scaling for TTS
+function getDistanceVolume(sphereEl) {
+  try {
+    var cam = document.querySelector("[camera]");
+    if (!cam) return 1.0;
+    var wp = new THREE.Vector3();
+    sphereEl.getObject3D("mesh").getWorldPosition(wp);
+    var dist = distance(cam.object3D.position.x, cam.object3D.position.z, wp.x, wp.z);
+    // Volume: full at distance 0, fading to 0.2 at distance 15+
+    return Math.max(0.2, Math.min(1.0, 1.0 - (dist - 2) / 15));
+  } catch (e) {
+    return 1.0;
+  }
+}
+
 function playSoundOnElement(el) {
   var audioId = getAudioIdFromSound(el);
 
   muteBeacon(el);
+  markVisited(el); // Feature 8: breadcrumb
 
   if (audioId && ttsTextMap[audioId]) {
     var text = ttsTextMap[audioId];
+    var vol = getDistanceVolume(el); // Feature 3: distance filtering
+
     setTimeout(function () {
       var utterance = new SpeechSynthesisUtterance(text);
       if (ttsVoice) utterance.voice = ttsVoice;
       utterance.lang = currentLang;
       utterance.rate = 1.0;
       utterance.pitch = 1.0;
+      utterance.volume = vol;
       utterance.onend = function () { unmuteBeacon(el); };
       utterance.onerror = function () { unmuteBeacon(el); };
       speechSynthesis.speak(utterance);
@@ -1020,6 +1859,10 @@ function tryAutoAnnounce(sphereEl, dist) {
   lastAnnounceTime = now;
 
   var heading = headingTextMap[audioId];
+  // Feature 8: indicate if already visited
+  if (visitedSpheres[audioId]) {
+    heading = heading + " (" + t("visited") + ")";
+  }
   var utterance = new SpeechSynthesisUtterance(heading);
   if (ttsVoice) utterance.voice = ttsVoice;
   utterance.lang = currentLang;
@@ -1111,6 +1954,14 @@ AFRAME.registerComponent("hit-bounds", {
   }
 });
 
+// Feature 1: Footstep tracker component
+AFRAME.registerComponent("footstep-tracker", {
+  tick: function () {
+    updateFootsteps();
+    updateSectionAmbients(); // Feature 2
+  }
+});
+
 AFRAME.registerComponent("collide", {
   init: function () {
     this.worldpos = new THREE.Vector3();
@@ -1125,6 +1976,13 @@ AFRAME.registerComponent("collide", {
     tryAutoAnnounce(this.el, dist);
 
     if (collide && dist < proxi) {
+      // Feature 10: Check if this is a portal sphere
+      if (this.el._portalLink) {
+        collide = false;
+        activatePortal(this.el);
+        return;
+      }
+
       checkCollide = true;
       collide = false;
       if (ttsMode === "webspeech") speechSynthesis.cancel();
@@ -1186,8 +2044,9 @@ AFRAME.registerComponent("play-proxi", {
 });
 
 // ============================================================
-// DOUBLE-TAP DOWN ARROW FOR WELCOME
+// KEYBOARD HANDLERS
 // ============================================================
+// Double-tap down arrow for welcome
 document.addEventListener("keydown", function (event) {
   if (welcomePlayed) return;
   if (event.code === "ArrowDown") {
@@ -1198,6 +2057,45 @@ document.addEventListener("keydown", function (event) {
       welcome.play().catch(function (err) { console.warn("Welcome audio:", err); });
     }
     lastUpTime = now;
+  }
+});
+
+// Feature 4: Tab = "Where am I"
+document.addEventListener("keydown", function (event) {
+  if (!started) return;
+  if (event.code === "Tab") {
+    event.preventDefault();
+    speakWhereAmI();
+  }
+});
+
+// Feature 7: O = Orbit overview
+document.addEventListener("keydown", function (event) {
+  if (!started) return;
+  if (event.code === "KeyO") {
+    event.preventDefault();
+    if (orbitActive) {
+      stopOrbit();
+    } else {
+      startOrbit();
+    }
+  }
+});
+
+// Feature 9: Enter = Zoom into section, Escape = Zoom out
+document.addEventListener("keydown", function (event) {
+  if (!started) return;
+  if (event.code === "Enter" && !orbitActive) {
+    event.preventDefault();
+    enterZoom();
+  }
+  if (event.code === "Escape") {
+    event.preventDefault();
+    if (orbitActive) {
+      stopOrbit();
+    } else if (zoomMode) {
+      exitZoom();
+    }
   }
 });
 
@@ -1337,7 +2235,6 @@ function updateProgress(text, percent) {
   area.classList.add("visible");
   document.getElementById("progress-text").textContent = text;
   document.getElementById("progress-bar").style.width = percent + "%";
-  // Update ARIA progressbar
   var bar = document.getElementById("progress-bar-container");
   if (bar) bar.setAttribute("aria-valuenow", Math.round(percent));
 }
