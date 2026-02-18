@@ -1092,26 +1092,26 @@ function drawLayout(data) {
   // Track min/max for bounds
   minX = 0; maxX = 0; minZ = 0;
   var maxZ = 0;
-  var currentZ = 12;  // start elements further ahead so doubletap.mp3 finishes first
+  var startOffset = 8;  // first element this far ahead so doubletap.mp3 finishes first
+  var currentZ = startOffset;
 
   for (var si = 0; si < spiralItems.length; si++) {
     var item = spiralItems[si];
 
     var pz = -currentZ; // negative Z = forward
 
-    // River centerline: x = amplitude * sin(2π * z / wavelength)
-    var riverX = amplitude * Math.sin(2 * Math.PI * currentZ / wavelength);
+    // First element (title) stays centered at x=0, meandering starts after
+    var riverZ = currentZ - startOffset; // river distance starts at 0 for sine wave
+    var riverX = amplitude * Math.sin(2 * Math.PI * riverZ / wavelength);
 
     // Direction of the curve at this point (derivative of sin = cos)
-    var curveSlope = amplitude * (2 * Math.PI / wavelength) * Math.cos(2 * Math.PI * currentZ / wavelength);
+    var curveSlope = amplitude * (2 * Math.PI / wavelength) * Math.cos(2 * Math.PI * riverZ / wavelength);
 
     // Determine offset from river center based on element type
     var offset = 0;
     if (item.hierarchyLevel === "paragraph") {
-      // Offset paragraph to the outside of the curve
       offset = curveSlope > 0 ? -paragraphOffset : paragraphOffset;
     } else if (item.hierarchyLevel === "subsection") {
-      // Subsections slightly offset in the opposite direction
       offset = curveSlope > 0 ? paragraphOffset * 0.5 : -paragraphOffset * 0.5;
     }
 
