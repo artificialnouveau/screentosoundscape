@@ -126,8 +126,29 @@
                 <!-- Real-Time Demo -->
                 <div class="content-block">
                     <h3>Real-Time Wikipedia Demo</h3>
-                    <p>Explore any Wikipedia article as a 3D spatial audio soundscape. Enter a URL, and the system fetches the article, converts text to speech, and builds an interactive scene in real time.</p>
+                    <p>Explore any Wikipedia article as a 3D spatial audio soundscape. Enter a URL, and the system fetches the article, converts text to speech, and builds an interactive scene in real time. Available in English and French.</p>
                     <p><a href="scripts/realtime.html" target="_blank" rel="noopener noreferrer">Try the Real-Time Demo</a></p>
+                </div>
+
+                <!-- Sound Guide -->
+                <div class="content-block">
+                    <h3>Sound Guide — What You Hear in the Soundscape</h3>
+                    <p>The real-time demo uses several layers of spatial audio to help you navigate and understand the article structure:</p>
+                    <ul>
+                        <li><strong>Section speech</strong> — When you approach a sphere, the section's text is read aloud using text-to-speech. The audio is spatialized so it sounds like it comes from the sphere's position in 3D space.</li>
+                        <li><strong>Beacon tones</strong> — Each sphere emits a quiet, looping tone so you can locate it by ear before you reach it. The pitch indicates the content's hierarchy:
+                            <ul>
+                                <li>Low tone (130 Hz) — Article title</li>
+                                <li>Mid-low tone (220 Hz) — Main sections (H2 headings)</li>
+                                <li>Mid tone (330 Hz) — Subsections (H3 headings)</li>
+                                <li>Higher tone (440 Hz) — Paragraphs</li>
+                            </ul>
+                        </li>
+                        <li><strong>Auto-announce</strong> — As you approach a section sphere (within about 5 units), its heading is spoken automatically so you know what content is nearby before you walk into it.</li>
+                        <li><strong>Ambient background</strong> — A soft, layered drone plays continuously to give a sense of being in a space. It combines low-frequency tones (55 Hz, 82.5 Hz, 110 Hz) with gentle filtered noise.</li>
+                        <li><strong>Boundary sound</strong> — A percussive "bump" sound plays when you reach the edge of the scene, letting you know you've hit a wall.</li>
+                        <li><strong>Welcome audio</strong> — On first entry, an instruction audio plays. Double-tap the down arrow key (or the backward button on mobile) to hear a welcome message describing the article layout.</li>
+                    </ul>
                 </div>
 
                 <!-- Phase 1 Demo -->

@@ -3,10 +3,18 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-  <title>Real-Time Wikipedia Soundscape</title>
+  <title>Real-Time Wikipedia Soundscape — Screen-to-Soundscape</title>
   <script src="https://aframe.io/releases/1.6.0/aframe.min.js"></script>
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    /* Skip link — visible on focus for keyboard users */
+    .skip-link {
+      position: absolute; top: -100px; left: 0; z-index: 100000;
+      background: #0f9; color: #111; padding: 8px 16px; font-size: 1rem;
+      text-decoration: none; font-weight: bold;
+    }
+    .skip-link:focus { top: 0; }
 
     #input-screen {
       position: fixed; top: 0; left: 0; width: 100%; height: 100%;
@@ -19,7 +27,7 @@
       font-size: 1.8rem; margin-bottom: 0.3rem; color: #fff;
     }
     #input-screen .subtitle {
-      font-size: 1rem; margin-bottom: 1.5rem; opacity: 0.7;
+      font-size: 1rem; margin-bottom: 1.5rem; color: #b0b0b0;
     }
 
     #input-form {
@@ -28,21 +36,35 @@
 
     #input-form label { font-size: 0.95rem; }
 
-    #input-form input[type="text"] {
+    #input-form input[type="text"],
+    #input-form select {
       width: 100%; padding: 12px; font-size: 1rem; border: 1px solid #444;
       border-radius: 6px; background: #16213e; color: #eee; outline: none;
     }
-    #input-form input[type="text"]:focus { border-color: #0f9; }
+    #input-form input[type="text"]:focus,
+    #input-form select:focus {
+      border-color: #0f9;
+      outline: 2px solid #0f9;
+      outline-offset: 2px;
+    }
 
     #generate-btn {
       padding: 14px; font-size: 1.1rem; border: none; border-radius: 6px;
       background: #0f9; color: #111; font-weight: bold; cursor: pointer;
     }
+    #generate-btn:focus {
+      outline: 2px solid #fff;
+      outline-offset: 2px;
+    }
     #generate-btn:disabled { opacity: 0.5; cursor: not-allowed; }
 
     #elevenlabs-toggle {
       font-size: 0.9rem; color: #aaa; cursor: pointer; text-decoration: underline;
-      background: none; border: none; text-align: left;
+      background: none; border: none; text-align: left; padding: 4px 0;
+    }
+    #elevenlabs-toggle:focus {
+      outline: 2px solid #0f9;
+      outline-offset: 2px;
     }
 
     #elevenlabs-section {
@@ -52,7 +74,7 @@
     #elevenlabs-section.open { display: flex; }
 
     #elevenlabs-section .note {
-      font-size: 0.8rem; opacity: 0.6; line-height: 1.4;
+      font-size: 0.8rem; color: #999; line-height: 1.4;
     }
 
     #progress-area {
@@ -75,43 +97,69 @@
       max-width: 560px; text-align: center;
     }
     #error-msg.visible { display: block; }
+
+    @media (prefers-reduced-motion: reduce) {
+      #progress-bar { transition: none; }
+    }
   </style>
   <script src="realtime.js" defer></script>
 </head>
 <body>
+  <a href="#input-form" class="skip-link">Skip to main content</a>
+
   <!-- Input Screen -->
-  <div id="input-screen">
+  <main id="input-screen" role="main" aria-label="Wikipedia soundscape generator">
     <h1>Screen-to-Soundscape</h1>
-    <p class="subtitle">Real-Time Wikipedia Explorer</p>
+    <p class="subtitle" id="app-description">Real-Time Wikipedia Explorer</p>
 
-    <form id="input-form" onsubmit="return false;">
-      <label for="wiki-url">Wikipedia Article URL or Title</label>
-      <input type="text" id="wiki-url" placeholder="e.g. https://en.wikipedia.org/wiki/Solar_System or Solar System">
+    <form id="input-form" onsubmit="return false;" aria-describedby="app-description">
+      <!-- Language selector -->
+      <label for="lang-select" id="lang-label">Language / Langue</label>
+      <select id="lang-select" aria-labelledby="lang-label">
+        <option value="en">English</option>
+        <option value="fr">Français</option>
+      </select>
 
-      <button type="button" id="elevenlabs-toggle">Optional: Use ElevenLabs for higher-quality voices</button>
-      <div id="elevenlabs-section">
-        <label for="elevenlabs-key">ElevenLabs API Key</label>
-        <input type="text" id="elevenlabs-key" placeholder="Enter your ElevenLabs API key">
-        <p class="note">
+      <label for="wiki-url" id="wiki-url-label" data-i18n="label_url">Wikipedia Article URL or Title</label>
+      <input type="text" id="wiki-url"
+        aria-labelledby="wiki-url-label"
+        data-i18n-placeholder="placeholder_url"
+        placeholder="e.g. https://en.wikipedia.org/wiki/Solar_System or Solar System">
+
+      <button type="button" id="elevenlabs-toggle"
+        aria-expanded="false"
+        aria-controls="elevenlabs-section"
+        data-i18n="toggle_elevenlabs">Optional: Use ElevenLabs for higher-quality voices</button>
+      <div id="elevenlabs-section" aria-hidden="true">
+        <label for="elevenlabs-key" data-i18n="label_apikey">ElevenLabs API Key</label>
+        <input type="text" id="elevenlabs-key"
+          aria-label="ElevenLabs API Key"
+          data-i18n-placeholder="placeholder_apikey"
+          placeholder="Enter your ElevenLabs API key">
+        <p class="note" data-i18n="note_elevenlabs">
           ElevenLabs offers a free tier with 10,000 characters/month.
           Sign up at elevenlabs.io. Your key is stored only in this browser
           session and is never saved to disk.
         </p>
       </div>
 
-      <button type="button" id="generate-btn">Generate Soundscape</button>
+      <button type="button" id="generate-btn" data-i18n="btn_generate">Generate Soundscape</button>
     </form>
 
-    <div id="progress-area">
-      <div id="progress-bar-container"><div id="progress-bar"></div></div>
+    <div id="progress-area" aria-live="polite" role="status">
+      <div id="progress-bar-container" role="progressbar"
+        aria-valuenow="0" aria-valuemin="0" aria-valuemax="100"
+        aria-label="Generation progress">
+        <div id="progress-bar"></div>
+      </div>
       <p id="progress-text"></p>
     </div>
 
-    <p id="error-msg"></p>
-  </div>
+    <p id="error-msg" role="alert" aria-live="assertive"></p>
+  </main>
 
   <!-- A-Frame Scene (hidden behind input screen until ready) -->
-  <a-scene>
+  <a-scene aria-hidden="true" aria-label="3D spatial audio soundscape">
     <a-assets>
       <audio id="bound-cue" preload="auto" src="./audio/bound.mp3"></audio>
     </a-assets>

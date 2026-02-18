@@ -12,6 +12,7 @@ let x0 = 0, z = 0, z0 = 0;
 let minX = 0, maxX = 0, minZ = 0;
 const margin = 2;
 const proxi = 2;
+const announceProxi = 5;
 let elCount = 0;
 let checkCollide = false;
 let collide = true;
@@ -23,14 +24,103 @@ const doubleTapThreshold = 400;
 let audioUnlocked = false;
 let hit = false;
 
-// --- TTS mode: "webspeech" or "elevenlabs" ---
+// --- TTS ---
 let ttsMode = "webspeech";
-let ttsVoice = null; // selected Web Speech voice
+let ttsVoice = null;
 let ttsTotal = 0;
 let ttsDone = 0;
-
-// Map from audio element id → text for Web Speech playback
 var ttsTextMap = {};
+var headingTextMap = {};
+var lastAnnouncedId = null;
+var lastAnnounceTime = 0;
+var announceCooldown = 4000;
+
+// Ambient audio
+var ambientCtx = null;
+var ambientGain = null;
+
+// --- Language ---
+var currentLang = "en";
+
+var i18n = {
+  en: {
+    label_url: "Wikipedia Article URL or Title",
+    placeholder_url: "e.g. https://en.wikipedia.org/wiki/Solar_System or Solar System",
+    toggle_elevenlabs: "Optional: Use ElevenLabs for higher-quality voices",
+    label_apikey: "ElevenLabs API Key",
+    placeholder_apikey: "Enter your ElevenLabs API key",
+    note_elevenlabs: "ElevenLabs offers a free tier with 10,000 characters/month. Sign up at elevenlabs.io. Your key is stored only in this browser session and is never saved to disk.",
+    btn_generate: "Generate Soundscape",
+    error_empty: "Please enter a Wikipedia URL or article title.",
+    progress_fetch: "Fetching Wikipedia article...",
+    progress_fetched: "Article fetched. Generating speech...",
+    progress_speech: "Generating speech: {done}/{total} sections...",
+    progress_preparing: "Preparing speech: {done}/{total} sections...",
+    progress_scene: "Building 3D scene...",
+    progress_done: "Done!",
+    overlay_title: "Screen-to-Soundscape",
+    overlay_start: "Click anywhere or press any key to start",
+    overlay_desktop: "Use arrow keys to navigate, spacebar to play/pause, shift to find nearest sound",
+    overlay_mobile: "Use on-screen buttons to move, tilt to look around, center button to play/pause",
+    aria_sphere_title: "Article title: {name}",
+    aria_sphere_intro: "Introduction",
+    aria_sphere_section: "Section: {name}",
+    aria_sphere_subsection: "Subsection: {name}",
+    aria_sphere_paragraph: "Paragraph for: {name}",
+    skip_sections: "See also|References|External links|Notes|Further reading|Bibliography|Sources"
+  },
+  fr: {
+    label_url: "URL ou titre de l'article Wikipédia",
+    placeholder_url: "ex. https://fr.wikipedia.org/wiki/Système_solaire ou Système solaire",
+    toggle_elevenlabs: "Optionnel : Utiliser ElevenLabs pour des voix de meilleure qualité",
+    label_apikey: "Clé API ElevenLabs",
+    placeholder_apikey: "Entrez votre clé API ElevenLabs",
+    note_elevenlabs: "ElevenLabs offre un forfait gratuit de 10 000 caractères/mois. Inscrivez-vous sur elevenlabs.io. Votre clé est stockée uniquement dans cette session et jamais enregistrée sur le disque.",
+    btn_generate: "Générer le paysage sonore",
+    error_empty: "Veuillez entrer une URL Wikipédia ou un titre d'article.",
+    progress_fetch: "Récupération de l'article Wikipédia...",
+    progress_fetched: "Article récupéré. Génération de la parole...",
+    progress_speech: "Génération de la parole : {done}/{total} sections...",
+    progress_preparing: "Préparation de la parole : {done}/{total} sections...",
+    progress_scene: "Construction de la scène 3D...",
+    progress_done: "Terminé !",
+    overlay_title: "Screen-to-Soundscape",
+    overlay_start: "Cliquez n'importe où ou appuyez sur une touche pour commencer",
+    overlay_desktop: "Utilisez les flèches pour naviguer, espace pour pause, shift pour le son le plus proche",
+    overlay_mobile: "Utilisez les boutons à l'écran pour vous déplacer, inclinez pour regarder, bouton central pour pause",
+    aria_sphere_title: "Titre de l'article : {name}",
+    aria_sphere_intro: "Introduction",
+    aria_sphere_section: "Section : {name}",
+    aria_sphere_subsection: "Sous-section : {name}",
+    aria_sphere_paragraph: "Paragraphe pour : {name}",
+    skip_sections: "Voir aussi|Références|Liens externes|Notes|Notes et références|Bibliographie|Sources|Articles connexes"
+  }
+};
+
+function t(key, vars) {
+  var str = (i18n[currentLang] && i18n[currentLang][key]) || i18n.en[key] || key;
+  if (vars) {
+    for (var k in vars) {
+      str = str.replace("{" + k + "}", vars[k]);
+    }
+  }
+  return str;
+}
+
+function applyLanguage(lang) {
+  currentLang = lang;
+  document.documentElement.setAttribute("lang", lang);
+
+  // Update all elements with data-i18n attributes
+  document.querySelectorAll("[data-i18n]").forEach(function (el) {
+    var key = el.getAttribute("data-i18n");
+    el.textContent = t(key);
+  });
+  document.querySelectorAll("[data-i18n-placeholder]").forEach(function (el) {
+    var key = el.getAttribute("data-i18n-placeholder");
+    el.setAttribute("placeholder", t(key));
+  });
+}
 
 // ============================================================
 // DOM READY
@@ -39,23 +129,37 @@ window.addEventListener("DOMContentLoaded", function () {
   sceneEl = document.querySelector("a-scene");
   assetEl = document.querySelector("a-assets");
 
-  // Restore ElevenLabs key from sessionStorage
   var savedKey = sessionStorage.getItem("elevenlabs_key");
   if (savedKey) {
     document.getElementById("elevenlabs-key").value = savedKey;
   }
 
-  // Toggle ElevenLabs section
-  document.getElementById("elevenlabs-toggle").addEventListener("click", function () {
-    document.getElementById("elevenlabs-section").classList.toggle("open");
+  // Language selector
+  var langSelect = document.getElementById("lang-select");
+  var savedLang = sessionStorage.getItem("preferred_lang");
+  if (savedLang) {
+    langSelect.value = savedLang;
+    applyLanguage(savedLang);
+  }
+  langSelect.addEventListener("change", function () {
+    var lang = langSelect.value;
+    sessionStorage.setItem("preferred_lang", lang);
+    applyLanguage(lang);
   });
 
-  // Generate button
+  // ElevenLabs toggle with ARIA
+  var toggleBtn = document.getElementById("elevenlabs-toggle");
+  var elSection = document.getElementById("elevenlabs-section");
+  toggleBtn.addEventListener("click", function () {
+    var isOpen = elSection.classList.toggle("open");
+    toggleBtn.setAttribute("aria-expanded", isOpen ? "true" : "false");
+    elSection.setAttribute("aria-hidden", isOpen ? "false" : "true");
+  });
+
   document.getElementById("generate-btn").addEventListener("click", function () {
     startGeneration();
   });
 
-  // Allow Enter key in URL input
   document.getElementById("wiki-url").addEventListener("keydown", function (e) {
     if (e.key === "Enter") startGeneration();
   });
@@ -69,7 +173,7 @@ window.addEventListener("DOMContentLoaded", function () {
 async function startGeneration() {
   var urlInput = document.getElementById("wiki-url").value.trim();
   if (!urlInput) {
-    showError("Please enter a Wikipedia URL or article title.");
+    showError(t("error_empty"));
     return;
   }
 
@@ -77,30 +181,30 @@ async function startGeneration() {
   var btn = document.getElementById("generate-btn");
   btn.disabled = true;
 
-  // Save ElevenLabs key in sessionStorage
   var elKey = document.getElementById("elevenlabs-key").value.trim();
   if (elKey) sessionStorage.setItem("elevenlabs_key", elKey);
 
   try {
-    updateProgress("Fetching Wikipedia article...", 5);
+    updateProgress(t("progress_fetch"), 5);
 
     var data = await fetchWikipedia(urlInput);
     console.log("Parsed Wikipedia data:", data);
     console.log("Sections found:", Object.keys(data.Sections).length);
-    updateProgress("Article fetched. Generating speech...", 15);
+    updateProgress(t("progress_fetched"), 15);
 
     await generateSpeech(data, elKey);
-    updateProgress("Building 3D scene...", 90);
+    updateProgress(t("progress_scene"), 90);
 
-    // Small delay so browser registers audio elements
     await delay(200);
 
+    createBeaconTones();
     buildScene(data);
-    updateProgress("Done!", 100);
+    updateProgress(t("progress_done"), 100);
 
-    // Hide input screen, show start overlay
     await delay(400);
     document.getElementById("input-screen").style.display = "none";
+    // Reveal A-Frame scene to assistive tech
+    document.querySelector("a-scene").setAttribute("aria-hidden", "false");
     showStartOverlay();
   } catch (err) {
     console.error(err);
@@ -110,16 +214,134 @@ async function startGeneration() {
 }
 
 // ============================================================
+// BEACON TONE GENERATION
+// ============================================================
+var beaconFreqs = {
+  title: 130,
+  section: 220,
+  subsection: 330,
+  paragraph: 440
+};
+
+function createBeaconTones() {
+  for (var level in beaconFreqs) {
+    var blob = generateToneBlob(beaconFreqs[level], 2.0, 0.06);
+    var url = URL.createObjectURL(blob);
+    var audioEl = document.createElement("audio");
+    audioEl.setAttribute("id", "beacon-" + level);
+    audioEl.setAttribute("preload", "auto");
+    audioEl.setAttribute("src", url);
+    assetEl.appendChild(audioEl);
+  }
+}
+
+function generateToneBlob(freq, duration, amplitude) {
+  var sampleRate = 22050;
+  var numSamples = Math.floor(sampleRate * duration);
+  var dataLength = numSamples * 2;
+  var totalLength = 44 + dataLength;
+  var buf = new ArrayBuffer(totalLength);
+  var view = new DataView(buf);
+
+  writeString(view, 0, "RIFF");
+  view.setUint32(4, totalLength - 8, true);
+  writeString(view, 8, "WAVE");
+  writeString(view, 12, "fmt ");
+  view.setUint32(16, 16, true);
+  view.setUint16(20, 1, true);
+  view.setUint16(22, 1, true);
+  view.setUint32(24, sampleRate, true);
+  view.setUint32(28, sampleRate * 2, true);
+  view.setUint16(32, 2, true);
+  view.setUint16(34, 16, true);
+  writeString(view, 36, "data");
+  view.setUint32(40, dataLength, true);
+
+  var fadeLen = Math.floor(sampleRate * 0.05);
+  var offset = 44;
+  for (var i = 0; i < numSamples; i++) {
+    var sample = Math.sin(2 * Math.PI * freq * (i / sampleRate)) * amplitude;
+    if (i < fadeLen) sample *= i / fadeLen;
+    if (i > numSamples - fadeLen) sample *= (numSamples - i) / fadeLen;
+    var val = Math.max(-1, Math.min(1, sample));
+    view.setInt16(offset, val < 0 ? val * 0x8000 : val * 0x7FFF, true);
+    offset += 2;
+  }
+
+  return new Blob([buf], { type: "audio/wav" });
+}
+
+function writeString(view, offset, str) {
+  for (var i = 0; i < str.length; i++) {
+    view.setUint8(offset + i, str.charCodeAt(i));
+  }
+}
+
+// ============================================================
+// AMBIENT BACKGROUND
+// ============================================================
+function startAmbient() {
+  try {
+    ambientCtx = new (window.AudioContext || window.webkitAudioContext)();
+    ambientGain = ambientCtx.createGain();
+    ambientGain.gain.value = 0.03;
+
+    var freqs = [55, 82.5, 110];
+    freqs.forEach(function (f) {
+      var osc = ambientCtx.createOscillator();
+      osc.type = "sine";
+      osc.frequency.value = f;
+      osc.connect(ambientGain);
+      osc.start();
+    });
+
+    var bufferSize = ambientCtx.sampleRate * 2;
+    var noiseBuffer = ambientCtx.createBuffer(1, bufferSize, ambientCtx.sampleRate);
+    var data = noiseBuffer.getChannelData(0);
+    for (var i = 0; i < bufferSize; i++) {
+      data[i] = (Math.random() * 2 - 1) * 0.5;
+    }
+    var noiseSource = ambientCtx.createBufferSource();
+    noiseSource.buffer = noiseBuffer;
+    noiseSource.loop = true;
+    var filter = ambientCtx.createBiquadFilter();
+    filter.type = "lowpass";
+    filter.frequency.value = 200;
+    filter.Q.value = 1;
+    var noiseGain = ambientCtx.createGain();
+    noiseGain.gain.value = 0.015;
+    noiseSource.connect(filter);
+    filter.connect(noiseGain);
+    noiseGain.connect(ambientGain);
+    noiseSource.start();
+
+    ambientGain.connect(ambientCtx.destination);
+  } catch (e) {
+    console.warn("Ambient audio failed:", e);
+  }
+}
+
+// ============================================================
 // WIKIPEDIA FETCH & PARSE
 // ============================================================
 async function fetchWikipedia(input) {
-  // Extract page title from URL or use as-is
   var title = input;
-  var match = input.match(/wikipedia\.org\/wiki\/([^#?]+)/);
-  if (match) title = decodeURIComponent(match[1]).replace(/_/g, " ");
+  // Detect language from URL or use selected language
+  var wikiLang = currentLang;
+  var match = input.match(/([a-z]{2,3})\.wikipedia\.org\/wiki\/([^#?]+)/);
+  if (match) {
+    wikiLang = match[1]; // use the language from the URL
+    title = decodeURIComponent(match[2]).replace(/_/g, " ");
+  } else {
+    // Plain text title — could also be a non-language URL
+    var urlMatch = input.match(/wikipedia\.org\/wiki\/([^#?]+)/);
+    if (urlMatch) {
+      title = decodeURIComponent(urlMatch[1]).replace(/_/g, " ");
+    }
+  }
 
   var apiUrl =
-    "https://en.wikipedia.org/w/api.php?action=parse&page=" +
+    "https://" + wikiLang + ".wikipedia.org/w/api.php?action=parse&page=" +
     encodeURIComponent(title) +
     "&format=json&origin=*&prop=text|displaytitle";
 
@@ -138,7 +360,6 @@ function parseWikipediaHTML(pageTitle, html) {
   var parser = new DOMParser();
   var doc = parser.parseFromString(html, "text/html");
 
-  // Remove unwanted elements
   doc.querySelectorAll(
     ".mw-editsection, .reference, .reflist, .navbox, .sistersitebox, " +
     ".mw-empty-elt, table, .infobox, .sidebar, .toc, .thumb, " +
@@ -149,11 +370,8 @@ function parseWikipediaHTML(pageTitle, html) {
   var body = doc.querySelector(".mw-parser-output") || doc.body;
   var children = Array.from(body.children);
 
-  // Helper: resolve the effective tag and element for a child.
-  // Modern Wikipedia wraps headings in <div class="mw-heading mw-heading2">.
   function resolveChild(child) {
     var tag = child.tagName;
-    // Handle mw-heading wrapper divs
     if (tag === "DIV" && child.classList.contains("mw-heading")) {
       var inner = child.querySelector("h2, h3, h4, h5, h6");
       if (inner) return { tag: inner.tagName, el: inner };
@@ -161,15 +379,14 @@ function parseWikipediaHTML(pageTitle, html) {
     return { tag: tag, el: child };
   }
 
-  // Collect introduction (everything before first H2)
   var introTexts = [];
   var sectionStart = -1;
   for (var i = 0; i < children.length; i++) {
     var resolved = resolveChild(children[i]);
     if (resolved.tag === "H2") { sectionStart = i; break; }
     if (resolved.tag === "P") {
-      var t = resolved.el.textContent.trim();
-      if (t) introTexts.push(t);
+      var txt = resolved.el.textContent.trim();
+      if (txt) introTexts.push(txt);
     }
   }
 
@@ -185,7 +402,8 @@ function parseWikipediaHTML(pageTitle, html) {
 
   if (sectionStart < 0) return data;
 
-  // Parse sections
+  // Build skip regex from i18n
+  var skipPattern = new RegExp("^(" + t("skip_sections") + ")$", "i");
   var currentH2 = null;
   var currentH3 = null;
 
@@ -196,8 +414,7 @@ function parseWikipediaHTML(pageTitle, html) {
 
     if (tag === "H2") {
       var heading = getHeadingText(el);
-      // Skip reference/external/see also sections
-      if (/^(See also|References|External links|Notes|Further reading|Bibliography|Sources)$/i.test(heading)) {
+      if (skipPattern.test(heading)) {
         currentH2 = null;
         currentH3 = null;
         continue;
@@ -276,16 +493,19 @@ function truncateText(text, maxLen) {
 // TEXT-TO-SPEECH
 // ============================================================
 async function generateSpeech(data, elevenLabsKey) {
-  // Collect all text blocks that need TTS
   var blocks = [];
-  blocks.push({ id: data.Title._id, text: data.Title.text });
+  blocks.push({ id: data.Title._id, text: data.Title.text, heading: data.Title.text });
   if (data.Introduction.text) {
-    blocks.push({ id: data.Introduction._id, text: data.Introduction.text });
+    blocks.push({ id: data.Introduction._id, text: data.Introduction.text, heading: "Introduction" });
   }
   collectSectionBlocks(data.Sections, blocks);
 
   ttsTotal = blocks.length;
   ttsDone = 0;
+
+  blocks.forEach(function (b) {
+    if (b.heading) headingTextMap[b.id] = b.heading;
+  });
 
   if (elevenLabsKey) {
     ttsMode = "elevenlabs";
@@ -300,9 +520,9 @@ async function generateSpeech(data, elevenLabsKey) {
 function collectSectionBlocks(sections, blocks) {
   for (var key in sections) {
     var sec = sections[key];
-    blocks.push({ id: sec._id, text: sec.text });
+    blocks.push({ id: sec._id, text: sec.text, heading: sec.text });
     if (sec.P && sec.P.text && sec.P._id) {
-      blocks.push({ id: sec.P._id, text: sec.P.text });
+      blocks.push({ id: sec.P._id, text: sec.P.text, heading: sec.text });
     }
     if (sec.Subsections) {
       collectSectionBlocks(sec.Subsections, blocks);
@@ -310,35 +530,26 @@ function collectSectionBlocks(sections, blocks) {
   }
 }
 
-// --- Web Speech API ---
-// Web Speech API can't export audio to files. Instead we:
-// 1. Create a tiny silent placeholder audio for each section (so A-Frame sound component works)
-// 2. Store the text for each id in ttsTextMap
-// 3. Override playSoundOnElement to use speechSynthesis.speak() for these elements
 async function generateWebSpeech(blocks) {
-  // Create one shared silent audio blob
   var silentBlob = createSilentWavBlob();
   var silentUrl = URL.createObjectURL(silentBlob);
 
   for (var i = 0; i < blocks.length; i++) {
     var block = blocks[i];
-    // Store text for live TTS playback
     ttsTextMap[block.id] = block.text;
-    // Add silent placeholder audio element
     addAudioElement(block.id, silentUrl);
 
     ttsDone++;
     updateProgress(
-      "Preparing speech: " + ttsDone + "/" + ttsTotal + " sections...",
+      t("progress_preparing", { done: ttsDone, total: ttsTotal }),
       15 + Math.round((ttsDone / ttsTotal) * 70)
     );
   }
 }
 
 function createSilentWavBlob() {
-  // Minimal 0.1s silent WAV
   var sampleRate = 8000;
-  var numSamples = 800; // 0.1 seconds
+  var numSamples = 800;
   var dataLength = numSamples * 2;
   var totalLength = 44 + dataLength;
   var buf = new ArrayBuffer(totalLength);
@@ -356,14 +567,7 @@ function createSilentWavBlob() {
   view.setUint16(34, 16, true);
   writeString(view, 36, "data");
   view.setUint32(40, dataLength, true);
-  // samples are already 0 (silent)
   return new Blob([buf], { type: "audio/wav" });
-}
-
-function writeString(view, offset, str) {
-  for (var i = 0; i < str.length; i++) {
-    view.setUint8(offset + i, str.charCodeAt(i));
-  }
 }
 
 function pickBestVoice() {
@@ -384,25 +588,33 @@ function pickBestVoice() {
 }
 
 function doPickVoice(voices) {
-  var english = voices.filter(function (v) { return /en[-_]/i.test(v.lang); });
-  if (english.length === 0) english = voices;
+  // Filter by selected language
+  var langPrefix = currentLang;
+  var langVoices = voices.filter(function (v) {
+    return v.lang.substring(0, 2).toLowerCase() === langPrefix;
+  });
+  if (langVoices.length === 0) langVoices = voices;
 
-  var premium = english.filter(function (v) {
+  var premium = langVoices.filter(function (v) {
     return /enhanced|premium|natural/i.test(v.name);
   });
   if (premium.length > 0) return premium[0];
 
-  var google = english.filter(function (v) {
+  var google = langVoices.filter(function (v) {
     return /google/i.test(v.name);
   });
   if (google.length > 0) return google[0];
 
-  return english[0] || voices[0] || null;
+  return langVoices[0] || voices[0] || null;
 }
 
-// --- ElevenLabs API ---
+// --- ElevenLabs ---
 async function generateElevenLabs(blocks, apiKey) {
-  var voiceId = "21m00Tcm4TlvDq8ikWAM"; // Rachel
+  var voiceId = "21m00Tcm4TlvDq8ikWAM"; // Rachel (English)
+  // For French, use a French voice if available
+  if (currentLang === "fr") {
+    voiceId = "pFZP5JQG7iQjIQuC4Bku"; // Lily (French, multilingual)
+  }
   var batchSize = 4;
 
   for (var i = 0; i < blocks.length; i += batchSize) {
@@ -417,14 +629,13 @@ async function generateElevenLabs(blocks, apiKey) {
         addAudioElement(block.id, result.value);
       } else {
         console.warn("ElevenLabs TTS failed for", block.id, result.reason);
-        // Fallback: store for web speech
         ttsTextMap[block.id] = block.text;
         var silentUrl = URL.createObjectURL(createSilentWavBlob());
         addAudioElement(block.id, silentUrl);
       }
       ttsDone++;
       updateProgress(
-        "Generating speech: " + ttsDone + "/" + ttsTotal + " sections...",
+        t("progress_speech", { done: ttsDone, total: ttsTotal }),
         15 + Math.round((ttsDone / ttsTotal) * 70)
       );
     });
@@ -433,6 +644,7 @@ async function generateElevenLabs(blocks, apiKey) {
 
 async function ttsElevenLabs(text, id, apiKey, voiceId) {
   var url = "https://api.elevenlabs.io/v1/text-to-speech/" + voiceId;
+  var modelId = currentLang === "fr" ? "eleven_multilingual_v2" : "eleven_monolingual_v1";
   var resp = await fetch(url, {
     method: "POST",
     headers: {
@@ -441,7 +653,7 @@ async function ttsElevenLabs(text, id, apiKey, voiceId) {
     },
     body: JSON.stringify({
       text: text,
-      model_id: "eleven_monolingual_v1"
+      model_id: modelId
     })
   });
 
@@ -454,7 +666,6 @@ async function ttsElevenLabs(text, id, apiKey, voiceId) {
   return URL.createObjectURL(blob);
 }
 
-// --- Audio element helpers ---
 function addAudioElement(id, srcUrl) {
   var audioEl = document.createElement("audio");
   audioEl.setAttribute("id", id);
@@ -464,7 +675,7 @@ function addAudioElement(id, srcUrl) {
 }
 
 // ============================================================
-// BUILD 3D SCENE (reused from layout.js)
+// BUILD 3D SCENE
 // ============================================================
 function buildScene(data) {
   drawLayout(data);
@@ -476,11 +687,12 @@ function drawLayout(data) {
   var titleAudioId = data.Title._id;
   var introAudioId = data.Introduction._id;
 
-  var titleEl = createElement(sceneEl, x0, y, z, "#EF2D5E", "title", "title", titleAudioId, true);
-  var introEl = createElement(titleEl, x0, 0, z, "#EF2D5E", "intro", "intro", introAudioId, true);
+  var titleEl = createElement(sceneEl, x0, y, z, "#EF2D5E", "title", "title", titleAudioId, true, "title",
+    t("aria_sphere_title", { name: data.Title.text }));
+  var introEl = createElement(titleEl, x0, 0, z, "#EF2D5E", "intro", "intro", introAudioId, true, "title",
+    t("aria_sphere_intro"));
 
-  // Boundary sound
-  createElement(sceneEl, minX - margin, y, z0 + margin, "#F0FFFF", "sound-cues", "bound", "bound-cue", false);
+  createElement(sceneEl, minX - margin, y, z0 + margin, "#F0FFFF", "sound-cues", "bound", "bound-cue", false, null, "Boundary");
 
   iterateSection(x0, 0, z, d1, data.Sections, introEl, "Sections_", 0);
 
@@ -489,7 +701,6 @@ function drawLayout(data) {
 
   document.querySelector("[camera]").setAttribute("play-proxi", "");
 
-  // Spacebar control
   document.addEventListener("keyup", function (event) {
     if (event.code === "Space") {
       checkCollide = false;
@@ -523,16 +734,20 @@ function iterateSection(x, y, z, d, section, parentEl, prename, angle) {
     var sec = section[key];
     var name = prename + key.replace(":", "").replaceAll(" ", "_");
     var headerAudioId = sec._id;
+    var level = key.startsWith("H3") ? "subsection" : "section";
+    var ariaKey = key.startsWith("H3") ? "aria_sphere_subsection" : "aria_sphere_section";
 
     var x1 = -d * Math.cos(degStep * i + angle);
     var z1 = -d / 2 - d * Math.sin(degStep * i + angle);
 
-    var headerEl = createElement(parentEl, x1, y, z1, "#00FFFF", "header", key + i, headerAudioId, true);
+    var headerEl = createElement(parentEl, x1, y, z1, "#00FFFF", "header", key + i, headerAudioId, true, level,
+      t(ariaKey, { name: sec.text }));
 
     if (sec.P && sec.P.text && sec.P._id) {
       var xp = -dp * Math.cos(degStep * i + angle);
       var zp = -dp * Math.sin(degStep * i + angle);
-      createElement(headerEl, xp, y, zp, "#FFFF00", "p", key + i + "_p", sec.P._id, true);
+      createElement(headerEl, xp, y, zp, "#FFFF00", "p", key + i + "_p", sec.P._id, true, "paragraph",
+        t("aria_sphere_paragraph", { name: sec.text }));
     }
 
     if (sec.Subsections) {
@@ -541,7 +756,7 @@ function iterateSection(x, y, z, d, section, parentEl, prename, angle) {
   });
 }
 
-function createElement(parentEl, x, y, z, color, className, id, soundId, autoPlay) {
+function createElement(parentEl, x, y, z, color, className, id, soundId, autoPlay, beaconLevel, ariaLabel) {
   var sphereEl = document.createElement("a-sphere");
   sphereEl.setAttribute("color", color);
   sphereEl.setAttribute("shader", "flat");
@@ -549,6 +764,10 @@ function createElement(parentEl, x, y, z, color, className, id, soundId, autoPla
   sphereEl.setAttribute("position", x + " " + y + " " + z);
   sphereEl.setAttribute("class", className);
   sphereEl.setAttribute("id", id);
+
+  if (ariaLabel) {
+    sphereEl.setAttribute("aria-label", ariaLabel);
+  }
 
   var soundSrc = "src:#" + soundId;
   sphereEl.setAttribute(
@@ -558,8 +777,15 @@ function createElement(parentEl, x, y, z, color, className, id, soundId, autoPla
       : soundSrc + "; poolSize: 1"
   );
 
-  // Store the audio id so we can look it up later
-  // (A-Frame resolves src:#id to a full URL, so we can't extract it back)
+  if (beaconLevel && beaconFreqs[beaconLevel]) {
+    sphereEl.setAttribute(
+      "sound__beacon",
+      "src: #beacon-" + beaconLevel +
+      "; autoplay: true; loop: true; volume: 0.3" +
+      "; distanceModel: exponential; refDistance: 2; rolloffFactor: 4; poolSize: 1"
+    );
+  }
+
   sphereEl._soundAudioId = soundId;
 
   if (autoPlay) {
@@ -573,22 +799,22 @@ function createElement(parentEl, x, y, z, color, className, id, soundId, autoPla
 }
 
 // ============================================================
-// START OVERLAY (same as layout.js)
+// START OVERLAY
 // ============================================================
 function showStartOverlay() {
   var overlay = document.createElement("div");
   overlay.id = "start-overlay";
+  overlay.setAttribute("role", "dialog");
+  overlay.setAttribute("aria-label", t("overlay_title"));
   overlay.style.cssText =
     "position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.8);" +
     "display:flex;align-items:center;justify-content:center;z-index:9999;cursor:pointer;";
   overlay.innerHTML =
     '<div style="color:white;font-family:sans-serif;text-align:center;">' +
-    '<h1 style="font-size:2rem;margin-bottom:1rem;">Screen-to-Soundscape</h1>' +
-    '<p style="font-size:1.2rem;">Click anywhere or press any key to start</p>' +
+    '<h1 style="font-size:2rem;margin-bottom:1rem;">' + t("overlay_title") + '</h1>' +
+    '<p style="font-size:1.2rem;">' + t("overlay_start") + '</p>' +
     '<p style="font-size:0.9rem;margin-top:1rem;opacity:0.7;">' +
-    (isMobile()
-      ? "Use on-screen buttons to move, tilt to look around, center button to play/pause"
-      : "Use arrow keys to navigate, spacebar to play/pause, shift to find nearest sound") +
+    (isMobile() ? t("overlay_mobile") : t("overlay_desktop")) +
     "</p></div>";
   document.body.appendChild(overlay);
 
@@ -600,13 +826,13 @@ function showStartOverlay() {
     var doubletap = new Audio("./audio/doubletap.mp3");
     doubletap.play().catch(function (err) { console.warn("Doubletap audio:", err); });
 
-    // Warm up speechSynthesis during user gesture so it's unlocked for later
     if (ttsMode === "webspeech") {
       var warmup = new SpeechSynthesisUtterance("");
       speechSynthesis.speak(warmup);
       speechSynthesis.cancel();
     }
 
+    startAmbient();
     resumeAudio();
   }
 
@@ -623,7 +849,7 @@ function isMobile() {
 }
 
 // ============================================================
-// AUDIO HELPERS — with Web Speech TTS override
+// AUDIO HELPERS
 // ============================================================
 function resumeAudio() {
   try {
@@ -654,6 +880,10 @@ function resumeAudio() {
       }
     });
   } catch (e) {}
+
+  try {
+    if (ambientCtx && ambientCtx.state === "suspended") ambientCtx.resume();
+  } catch (e) {}
 }
 
 function isWebAudioWorking(el) {
@@ -667,11 +897,8 @@ function isWebAudioWorking(el) {
 }
 
 function getAudioIdFromSound(el) {
-  // First check our custom attribute (set during createElement)
   if (el._soundAudioId) return el._soundAudioId;
   try {
-    // Fallback: try raw DOM attribute string (A-Frame's getAttribute resolves
-    // the src to a full URL, so we must use getDOMAttribute for the #id form)
     var raw = el.getDOMAttribute("sound");
     if (raw && typeof raw === "string") {
       var match = raw.match(/src:#([^;]+)/);
@@ -687,29 +914,26 @@ function getAudioElFromSound(el) {
   return null;
 }
 
-// The key override: if this element's audio id is in ttsTextMap,
-// use speechSynthesis instead of trying to play the (silent) audio file.
 function playSoundOnElement(el) {
   var audioId = getAudioIdFromSound(el);
-  console.log("playSoundOnElement audioId:", audioId, "inMap:", !!(audioId && ttsTextMap[audioId]), "mapKeys sample:", Object.keys(ttsTextMap).slice(0, 3));
 
-  // Check if this has Web Speech text to speak
+  muteBeacon(el);
+
   if (audioId && ttsTextMap[audioId]) {
-    // Use a short delay after any prior cancel() to work around Chrome bug
-    // where cancel() immediately before speak() silently drops the utterance.
     var text = ttsTextMap[audioId];
     setTimeout(function () {
       var utterance = new SpeechSynthesisUtterance(text);
       if (ttsVoice) utterance.voice = ttsVoice;
+      utterance.lang = currentLang;
       utterance.rate = 1.0;
       utterance.pitch = 1.0;
+      utterance.onend = function () { unmuteBeacon(el); };
+      utterance.onerror = function () { unmuteBeacon(el); };
       speechSynthesis.speak(utterance);
-      console.log("Speaking:", text.substring(0, 60) + "...");
     }, 50);
     return;
   }
 
-  // Normal audio playback (ElevenLabs or bound-cue)
   if (isWebAudioWorking(el)) {
     el.components.sound.playSound();
   } else {
@@ -724,8 +948,6 @@ function playSoundOnElement(el) {
 function pauseSoundOnElement(el) {
   var audioId = getAudioIdFromSound(el);
   if (audioId && ttsTextMap[audioId]) {
-    // Don't cancel here — let the collide handler manage cancellation
-    // so we avoid the cancel-then-speak Chrome bug
     return;
   }
 
@@ -752,6 +974,20 @@ function stopSoundOnElement(el) {
   }
 }
 
+function muteBeacon(el) {
+  try {
+    var beaconComp = el.components && el.components.sound__beacon;
+    if (beaconComp) beaconComp.pauseSound();
+  } catch (e) {}
+}
+
+function unmuteBeacon(el) {
+  try {
+    var beaconComp = el.components && el.components.sound__beacon;
+    if (beaconComp) beaconComp.playSound();
+  } catch (e) {}
+}
+
 function checkAudio(audioArray) {
   if (!playing) {
     if (ttsMode === "webspeech") speechSynthesis.resume();
@@ -766,6 +1002,31 @@ function checkAudio(audioArray) {
 
 function distance(x1, z1, x2, z2) {
   return Math.sqrt(Math.pow(x1 - x2, 2) + Math.pow(z1 - z2, 2));
+}
+
+// ============================================================
+// AUTO-ANNOUNCE
+// ============================================================
+function tryAutoAnnounce(sphereEl, dist) {
+  if (dist > announceProxi || dist < proxi) return;
+  var audioId = getAudioIdFromSound(sphereEl);
+  if (!audioId || !headingTextMap[audioId]) return;
+
+  var now = Date.now();
+  if (audioId === lastAnnouncedId && now - lastAnnounceTime < announceCooldown) return;
+  if (speechSynthesis.speaking) return;
+
+  lastAnnouncedId = audioId;
+  lastAnnounceTime = now;
+
+  var heading = headingTextMap[audioId];
+  var utterance = new SpeechSynthesisUtterance(heading);
+  if (ttsVoice) utterance.voice = ttsVoice;
+  utterance.lang = currentLang;
+  utterance.rate = 1.1;
+  utterance.pitch = 1.1;
+  utterance.volume = 0.7;
+  speechSynthesis.speak(utterance);
 }
 
 // ============================================================
@@ -788,7 +1049,7 @@ function unlockAllAudio() {
 }
 
 // ============================================================
-// A-FRAME COMPONENTS (same as layout.js)
+// A-FRAME COMPONENTS
 // ============================================================
 AFRAME.registerComponent("world-pos", {
   init: function () {
@@ -855,22 +1116,22 @@ AFRAME.registerComponent("collide", {
     this.worldpos = new THREE.Vector3();
   },
   tick: function () {
-    if (collide) {
-      var cameraEl = document.querySelector("[camera]");
-      var camX = cameraEl.object3D.position.x;
-      var camZ = cameraEl.object3D.position.z;
-      this.el.getObject3D("mesh").getWorldPosition(this.worldpos);
-      if (distance(camX, camZ, this.worldpos.x, this.worldpos.z) < proxi) {
-        checkCollide = true;
-        collide = false;
-        // Cancel any ongoing speech before speaking new section
-        if (ttsMode === "webspeech") speechSynthesis.cancel();
-        playSoundOnElement(this.el);
-        console.log("collide: " + this.el.id);
-        sounds.forEach(function (s) {
-          if (s !== this.el) pauseSoundOnElement(s);
-        }.bind(this));
-      }
+    var cameraEl = document.querySelector("[camera]");
+    var camX = cameraEl.object3D.position.x;
+    var camZ = cameraEl.object3D.position.z;
+    this.el.getObject3D("mesh").getWorldPosition(this.worldpos);
+    var dist = distance(camX, camZ, this.worldpos.x, this.worldpos.z);
+
+    tryAutoAnnounce(this.el, dist);
+
+    if (collide && dist < proxi) {
+      checkCollide = true;
+      collide = false;
+      if (ttsMode === "webspeech") speechSynthesis.cancel();
+      playSoundOnElement(this.el);
+      sounds.forEach(function (s) {
+        if (s !== this.el) pauseSoundOnElement(s);
+      }.bind(this));
     }
   }
 });
@@ -925,7 +1186,7 @@ AFRAME.registerComponent("play-proxi", {
 });
 
 // ============================================================
-// DOUBLE-TAP UP ARROW FOR WELCOME
+// DOUBLE-TAP DOWN ARROW FOR WELCOME
 // ============================================================
 document.addEventListener("keydown", function (event) {
   if (welcomePlayed) return;
@@ -940,12 +1201,11 @@ document.addEventListener("keydown", function (event) {
   }
 });
 
-// Resume AudioContext on any click/key
 document.addEventListener("click", resumeAudio);
 document.addEventListener("keydown", resumeAudio);
 
 // ============================================================
-// MOBILE TOUCH CONTROLS (same as layout.js)
+// MOBILE TOUCH CONTROLS
 // ============================================================
 function addMobileControls() {
   if (!isMobile()) return;
@@ -956,6 +1216,8 @@ function addMobileControls() {
 
   var container = document.createElement("div");
   container.id = "mobile-controls";
+  container.setAttribute("role", "toolbar");
+  container.setAttribute("aria-label", "Navigation controls");
   container.style.cssText =
     "position:fixed;bottom:20px;left:50%;transform:translateX(-50%);z-index:9998;" +
     "display:flex;flex-direction:column;align-items:center;gap:6px;pointer-events:none;";
@@ -967,9 +1229,10 @@ function addMobileControls() {
   var botRow = document.createElement("div");
   botRow.style.cssText = "display:flex;gap:6px;pointer-events:none;";
 
-  function makeBtn(label, dir) {
+  function makeBtn(label, dir, ariaLabel) {
     var btn = document.createElement("button");
     btn.textContent = label;
+    btn.setAttribute("aria-label", ariaLabel);
     btn.style.cssText =
       "width:60px;height:60px;font-size:24px;border:none;border-radius:50%;" +
       "background:rgba(255,255,255,0.5);color:#333;pointer-events:auto;" +
@@ -1036,12 +1299,13 @@ function addMobileControls() {
   }
 
   topRow.appendChild(makeSpacer());
-  topRow.appendChild(makeBtn("\u25B2", "forward"));
+  topRow.appendChild(makeBtn("\u25B2", "forward", "Move forward"));
   topRow.appendChild(makeSpacer());
 
-  midRow.appendChild(makeBtn("\u25C0", "left"));
+  midRow.appendChild(makeBtn("\u25C0", "left", "Move left"));
   var pauseBtn = document.createElement("button");
   pauseBtn.textContent = "\u23EF";
+  pauseBtn.setAttribute("aria-label", "Pause or play audio");
   pauseBtn.style.cssText =
     "width:60px;height:60px;font-size:20px;border:none;border-radius:50%;" +
     "background:rgba(255,255,255,0.5);color:#333;pointer-events:auto;" +
@@ -1053,10 +1317,10 @@ function addMobileControls() {
     if (sounds) { checkCollide = false; checkAudio(sounds); }
   }, { passive: false });
   midRow.appendChild(pauseBtn);
-  midRow.appendChild(makeBtn("\u25B6", "right"));
+  midRow.appendChild(makeBtn("\u25B6", "right", "Move right"));
 
   botRow.appendChild(makeSpacer());
-  botRow.appendChild(makeBtn("\u25BC", "backward"));
+  botRow.appendChild(makeBtn("\u25BC", "backward", "Move backward"));
   botRow.appendChild(makeSpacer());
 
   container.appendChild(topRow);
@@ -1073,6 +1337,9 @@ function updateProgress(text, percent) {
   area.classList.add("visible");
   document.getElementById("progress-text").textContent = text;
   document.getElementById("progress-bar").style.width = percent + "%";
+  // Update ARIA progressbar
+  var bar = document.getElementById("progress-bar-container");
+  if (bar) bar.setAttribute("aria-valuenow", Math.round(percent));
 }
 
 function showError(msg) {
@@ -1083,6 +1350,7 @@ function showError(msg) {
 
 function hideError() {
   document.getElementById("error-msg").classList.remove("visible");
+  document.getElementById("error-msg").textContent = "";
 }
 
 function delay(ms) {
