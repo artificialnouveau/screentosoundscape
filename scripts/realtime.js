@@ -1071,7 +1071,7 @@ function drawLayout(data) {
   // Track min/max for bounds
   minX = 0; maxX = 0; minZ = 0;
   var maxZ = 0;
-  var currentZ = 0;
+  var currentZ = 12;  // start elements further ahead so doubletap.mp3 finishes first
 
   for (var si = 0; si < spiralItems.length; si++) {
     var item = spiralItems[si];
