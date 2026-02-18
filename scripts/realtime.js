@@ -67,23 +67,12 @@ var yLevels = {
   paragraph: 0.3
 };
 
-// --- Feature 7: Orbit mode ---
-var orbitActive = false;
-var orbitAngle = 0;
-var orbitCenter = { x: 0, z: 0 };
-var orbitRadius = 15;
-var orbitSectionList = [];
-var orbitIndex = 0;
-var orbitAnimId = null;
+// --- Home position (for Escape to return) ---
+var homePos = { x: 0, y: 1.6, z: 0 };
 
 // --- Feature 8: Breadcrumb ---
 var visitedSpheres = {};
 var breadcrumbClickBlob = null;
-
-// --- Feature 9: Interactive zoom ---
-var zoomStack = [];
-var allTopLevelEls = [];
-var zoomMode = false;
 
 // --- Feature 10: Portals ---
 var portalLinks = [];
@@ -110,7 +99,7 @@ var i18n = {
     progress_done: "Done!",
     overlay_title: "Screen-to-Soundscape",
     overlay_start: "Click anywhere or press any key to start",
-    overlay_desktop: "Arrow keys: move. Double-tap Space: welcome message. Space: play/pause. Shift: nearest sound. Tab: where am I. O: overview tour. Enter: zoom in or load portal. Escape: zoom out.",
+    overlay_desktop: "Arrow keys: move. Space: play/pause. Double-tap Space: welcome. Shift: nearest sound. Tab: where am I. CapsLock: play all by distance. Enter: load portal. Escape: return to start.",
     overlay_mobile: "Use on-screen buttons to move, tilt to look around, center button to play/pause",
     aria_sphere_title: "Article title: {name}",
     aria_sphere_intro: "Introduction",
@@ -120,10 +109,6 @@ var i18n = {
     aria_sphere_portal: "Portal to article: {name}",
     skip_sections: "See also|References|External links|Notes|Further reading|Bibliography|Sources",
     whereami: "You are near {section}. {left} sections to your left, {right} to your right, {ahead} ahead.",
-    whereami_in: "Inside section: {section}.",
-    orbit_announce: "Section {num} of {total}: {name}",
-    zoom_enter: "Entering section: {name}",
-    zoom_exit: "Returning to overview",
     visited: "Already visited",
     portal_loading: "Loading linked article: {name}"
   },
@@ -144,7 +129,7 @@ var i18n = {
     progress_done: "Terminé !",
     overlay_title: "Screen-to-Soundscape",
     overlay_start: "Cliquez n'importe où ou appuyez sur une touche pour commencer",
-    overlay_desktop: "Flèches : se déplacer. Double espace : message d'accueil. Espace : pause. Shift : son le plus proche. Tab : où suis-je. O : visite. Entrée : zoom ou portail. Échap : retour.",
+    overlay_desktop: "Flèches : se déplacer. Espace : pause. Double espace : accueil. Shift : son le plus proche. Tab : où suis-je. CapsLock : tout lire. Entrée : portail. Échap : retour au départ.",
     overlay_mobile: "Utilisez les boutons à l'écran pour vous déplacer, inclinez pour regarder, bouton central pour pause",
     aria_sphere_title: "Titre de l'article : {name}",
     aria_sphere_intro: "Introduction",
@@ -154,10 +139,6 @@ var i18n = {
     aria_sphere_portal: "Portail vers l'article : {name}",
     skip_sections: "Voir aussi|Références|Liens externes|Notes|Notes et références|Bibliographie|Sources|Articles connexes",
     whereami: "Vous êtes près de {section}. {left} sections à gauche, {right} à droite, {ahead} devant.",
-    whereami_in: "Dans la section : {section}.",
-    orbit_announce: "Section {num} sur {total} : {name}",
-    zoom_enter: "Entrée dans la section : {name}",
-    zoom_exit: "Retour à la vue d'ensemble",
     visited: "Déjà visité",
     portal_loading: "Chargement de l'article lié : {name}"
   }
@@ -983,36 +964,8 @@ function drawLayout(data) {
   // Feature 5: Dynamic clustering — weight angular spread by content length
   iterateSectionWeighted(x0, 0, z, d1, data.Sections, introEl, "Sections_", 0);
 
-  // Build orbit section list for Feature 7
-  orbitSectionList = [];
-  document.querySelectorAll("a-sphere.header").forEach(function (el) {
-    var audioId = getAudioIdFromSound(el);
-    if (audioId && headingTextMap[audioId]) {
-      orbitSectionList.push(el);
-    }
-  });
-
-  // Track top-level elements for Feature 9 zoom
-  allTopLevelEls = Array.from(document.querySelectorAll("a-sphere.title, a-sphere.intro, a-sphere.header, a-sphere.p"));
-
   sounds = document.querySelectorAll("a-sphere");
   console.log("Total spheres created:", sounds.length);
-
-  // Calculate orbit center
-  var sumX = 0, sumZ = 0, count = 0;
-  sounds.forEach(function (s) {
-    var wp = new THREE.Vector3();
-    try {
-      s.getObject3D("mesh").getWorldPosition(wp);
-      sumX += wp.x;
-      sumZ += wp.z;
-      count++;
-    } catch (e) {}
-  });
-  if (count > 0) {
-    orbitCenter.x = sumX / count;
-    orbitCenter.z = sumZ / count;
-  }
 
   document.querySelector("[camera]").setAttribute("play-proxi", "");
 
@@ -1024,7 +977,7 @@ function drawLayout(data) {
   });
 
   document.addEventListener("keydown", function (event) {
-    if (event.code !== "Tab" && event.code !== "KeyO" && event.code !== "Enter" && event.code !== "Escape") {
+    if (event.code !== "Tab" && event.code !== "Enter" && event.code !== "Escape") {
       collide = true;
     }
   });
@@ -1215,87 +1168,6 @@ function createPortals(data) {
 }
 
 // ============================================================
-// FEATURE 7: ORBIT / OVERVIEW MODE
-// ============================================================
-function startOrbit() {
-  if (orbitActive || orbitSectionList.length === 0) return;
-  orbitActive = true;
-  orbitIndex = 0;
-  orbitAngle = 0;
-
-  // Disable normal movement
-  var cameraEl = document.querySelector("a-camera");
-  if (cameraEl) {
-    cameraEl.setAttribute("wasd-controls", "enabled: false");
-    cameraEl.setAttribute("look-controls", "enabled: false");
-  }
-
-  announceOrbitSection();
-  doOrbitStep();
-}
-
-function stopOrbit() {
-  if (!orbitActive) return;
-  orbitActive = false;
-  if (orbitAnimId) cancelAnimationFrame(orbitAnimId);
-  orbitAnimId = null;
-
-  var cameraEl = document.querySelector("a-camera");
-  if (cameraEl) {
-    cameraEl.setAttribute("wasd-controls", "enabled: true");
-    cameraEl.setAttribute("look-controls", "enabled: true");
-  }
-  speechSynthesis.cancel();
-}
-
-function doOrbitStep() {
-  if (!orbitActive) return;
-
-  var speed = 0.005;
-  orbitAngle += speed;
-
-  var cam = document.querySelector("a-camera");
-  if (cam) {
-    cam.object3D.position.x = orbitCenter.x + orbitRadius * Math.cos(orbitAngle);
-    cam.object3D.position.z = orbitCenter.z + orbitRadius * Math.sin(orbitAngle);
-    cam.object3D.position.y = yLevels.section + 2;
-
-    // Look at center
-    cam.object3D.lookAt(new THREE.Vector3(orbitCenter.x, yLevels.section, orbitCenter.z));
-  }
-
-  // Advance to next section every ~3 seconds worth of frames
-  if (orbitAngle > (orbitIndex + 1) * (Math.PI * 2 / Math.max(orbitSectionList.length, 1))) {
-    orbitIndex++;
-    if (orbitIndex >= orbitSectionList.length) {
-      stopOrbit();
-      return;
-    }
-    announceOrbitSection();
-  }
-
-  orbitAnimId = requestAnimationFrame(doOrbitStep);
-}
-
-function announceOrbitSection() {
-  if (orbitIndex >= orbitSectionList.length) return;
-  var el = orbitSectionList[orbitIndex];
-  var audioId = getAudioIdFromSound(el);
-  var name = headingTextMap[audioId] || "Unknown";
-
-  speechSynthesis.cancel();
-  setTimeout(function () {
-    var utterance = new SpeechSynthesisUtterance(
-      t("orbit_announce", { num: orbitIndex + 1, total: orbitSectionList.length, name: name })
-    );
-    if (ttsVoice) utterance.voice = ttsVoice;
-    utterance.lang = currentLang;
-    utterance.rate = 1.2;
-    speechSynthesis.speak(utterance);
-  }, 100);
-}
-
-// ============================================================
 // FEATURE 4: WHERE AM I (Tab key)
 // ============================================================
 function speakWhereAmI() {
@@ -1303,17 +1175,6 @@ function speakWhereAmI() {
   if (!cam) return;
   var cx = cam.object3D.position.x;
   var cz = cam.object3D.position.z;
-
-  // If in zoom mode, announce the zoomed section
-  if (zoomMode && zoomStack.length > 0) {
-    var zoomSection = zoomStack[zoomStack.length - 1];
-    var utterance = new SpeechSynthesisUtterance(t("whereami_in", { section: zoomSection.name }));
-    if (ttsVoice) utterance.voice = ttsVoice;
-    utterance.lang = currentLang;
-    speechSynthesis.cancel();
-    setTimeout(function () { speechSynthesis.speak(utterance); }, 50);
-    return;
-  }
 
   // Find nearest section sphere
   var nearest = null;
@@ -1355,104 +1216,6 @@ function speakWhereAmI() {
     if (ttsVoice) utt.voice = ttsVoice;
     utt.lang = currentLang;
     utt.rate = 1.1;
-    speechSynthesis.speak(utt);
-  }, 50);
-}
-
-// ============================================================
-// FEATURE 9: INTERACTIVE ZOOM
-// ============================================================
-function enterZoom() {
-  var cam = document.querySelector("[camera]");
-  if (!cam) return;
-  var cx = cam.object3D.position.x;
-  var cz = cam.object3D.position.z;
-
-  // Find nearest section header sphere
-  var nearest = null;
-  var nearestDist = Infinity;
-  document.querySelectorAll("a-sphere.header").forEach(function (el) {
-    if (el._hierarchyLevel !== "section") return;
-    var wp = new THREE.Vector3();
-    try {
-      el.getObject3D("mesh").getWorldPosition(wp);
-      var dist = distance(cx, cz, wp.x, wp.z);
-      if (dist < nearestDist && dist < 10) {
-        nearestDist = dist;
-        nearest = el;
-      }
-    } catch (e) {}
-  });
-
-  if (!nearest || !nearest._sectionData) return;
-
-  var sectionData = nearest._sectionData;
-  var sectionName = headingTextMap[getAudioIdFromSound(nearest)] || sectionData.text;
-
-  // Store camera position for returning
-  zoomStack.push({
-    camX: cx,
-    camY: cam.object3D.position.y,
-    camZ: cz,
-    name: sectionName,
-    targetEl: nearest
-  });
-  zoomMode = true;
-
-  // Hide all spheres except this section's children
-  sounds.forEach(function (s) {
-    if (s === nearest) return;
-    // Check if s is a child of nearest
-    var isChild = false;
-    var parent = s.parentElement;
-    while (parent) {
-      if (parent === nearest) { isChild = true; break; }
-      parent = parent.parentElement;
-    }
-    if (!isChild) {
-      s.object3D.visible = false;
-      muteBeacon(s);
-    }
-  });
-
-  // Move camera to near the section
-  var wp = new THREE.Vector3();
-  nearest.getObject3D("mesh").getWorldPosition(wp);
-  cam.object3D.position.set(wp.x, yLevels.section, wp.z + 3);
-
-  // Announce
-  speechSynthesis.cancel();
-  setTimeout(function () {
-    var utt = new SpeechSynthesisUtterance(t("zoom_enter", { name: sectionName }));
-    if (ttsVoice) utt.voice = ttsVoice;
-    utt.lang = currentLang;
-    speechSynthesis.speak(utt);
-  }, 50);
-}
-
-function exitZoom() {
-  if (!zoomMode || zoomStack.length === 0) return;
-
-  var state = zoomStack.pop();
-  if (zoomStack.length === 0) zoomMode = false;
-
-  // Show all spheres again
-  sounds.forEach(function (s) {
-    s.object3D.visible = true;
-    unmuteBeacon(s);
-  });
-
-  // Restore camera position
-  var cam = document.querySelector("[camera]");
-  if (cam) {
-    cam.object3D.position.set(state.camX, state.camY, state.camZ);
-  }
-
-  speechSynthesis.cancel();
-  setTimeout(function () {
-    var utt = new SpeechSynthesisUtterance(t("zoom_exit"));
-    if (ttsVoice) utt.voice = ttsVoice;
-    utt.lang = currentLang;
     speechSynthesis.speak(utt);
   }, 50);
 }
@@ -1620,13 +1383,9 @@ function clearScene() {
   visitedSpheres = {};
   sectionWeights = {};
   sectionAmbients = {};
-  orbitSectionList = [];
-  allTopLevelEls = [];
   portalLinks = [];
   elCount = 0;
   minX = 0; maxX = 0; minZ = 0;
-  zoomStack = [];
-  zoomMode = false;
   ttsTotal = 0;
   ttsDone = 0;
 
@@ -1668,6 +1427,14 @@ function showStartOverlay() {
       var warmup = new SpeechSynthesisUtterance("");
       speechSynthesis.speak(warmup);
       speechSynthesis.cancel();
+    }
+
+    // Save home position for Escape key
+    var cam = document.querySelector("[camera]");
+    if (cam) {
+      homePos.x = cam.object3D.position.x;
+      homePos.y = cam.object3D.position.y;
+      homePos.z = cam.object3D.position.z;
     }
 
     startAmbient();
@@ -1864,6 +1631,70 @@ function checkAudio(audioArray) {
 
 function distance(x1, z1, x2, z2) {
   return Math.sqrt(Math.pow(x1 - x2, 2) + Math.pow(z1 - z2, 2));
+}
+
+// ============================================================
+// PLAY ALL WITH DISTANCE VOLUME (CapsLock)
+// ============================================================
+var playAllActive = false;
+var playAllUtterances = [];
+
+function playAllWithDistanceVolume() {
+  if (playAllActive) {
+    // Stop all
+    playAllActive = false;
+    speechSynthesis.cancel();
+    playAllUtterances = [];
+    return;
+  }
+
+  if (!sounds || sounds.length === 0) return;
+  playAllActive = true;
+
+  var cam = document.querySelector("[camera]");
+  if (!cam) return;
+  var cx = cam.object3D.position.x;
+  var cz = cam.object3D.position.z;
+
+  // Collect all spheres with text, sorted by distance (nearest first)
+  var items = [];
+  sounds.forEach(function (s) {
+    var audioId = getAudioIdFromSound(s);
+    if (!audioId || !ttsTextMap[audioId]) return;
+    var wp = new THREE.Vector3();
+    try {
+      s.getObject3D("mesh").getWorldPosition(wp);
+      var dist = distance(cx, cz, wp.x, wp.z);
+      items.push({ el: s, audioId: audioId, text: ttsTextMap[audioId], dist: dist });
+    } catch (e) {}
+  });
+
+  items.sort(function (a, b) { return a.dist - b.dist; });
+
+  // Speak them sequentially with volume based on distance
+  function speakNext(idx) {
+    if (!playAllActive || idx >= items.length) {
+      playAllActive = false;
+      return;
+    }
+    var item = items[idx];
+    // Volume: 1.0 at distance 0, down to 0.15 at distance 30+
+    var vol = Math.max(0.15, Math.min(1.0, 1.0 - (item.dist / 35)));
+
+    markVisited(item.el);
+
+    var utt = new SpeechSynthesisUtterance(item.text);
+    if (ttsVoice) utt.voice = ttsVoice;
+    utt.lang = currentLang;
+    utt.volume = vol;
+    utt.rate = 1.0;
+    utt.onend = function () { speakNext(idx + 1); };
+    utt.onerror = function () { speakNext(idx + 1); };
+    speechSynthesis.speak(utt);
+  }
+
+  speechSynthesis.cancel();
+  setTimeout(function () { speakNext(0); }, 50);
 }
 
 // ============================================================
@@ -2103,39 +1934,43 @@ document.addEventListener("keydown", function (event) {
   }
 });
 
-// Feature 7: O = Orbit overview
+// Enter = activate nearby portal
 document.addEventListener("keydown", function (event) {
   if (!started) return;
-  if (event.code === "KeyO") {
+  if (event.code === "Enter") {
     event.preventDefault();
-    if (orbitActive) {
-      stopOrbit();
-    } else {
-      startOrbit();
+    var nearPortal = findNearestPortal();
+    if (nearPortal) {
+      activatePortal(nearPortal);
     }
   }
 });
 
-// Feature 9: Enter = Zoom into section or activate portal, Escape = Zoom out
+// Escape = return to starting position
 document.addEventListener("keydown", function (event) {
   if (!started) return;
-  if (event.code === "Enter" && !orbitActive) {
-    event.preventDefault();
-    // Check if near a portal first
-    var nearPortal = findNearestPortal();
-    if (nearPortal) {
-      activatePortal(nearPortal);
-    } else {
-      enterZoom();
-    }
-  }
   if (event.code === "Escape") {
     event.preventDefault();
-    if (orbitActive) {
-      stopOrbit();
-    } else if (zoomMode) {
-      exitZoom();
+    var cam = document.querySelector("[camera]");
+    if (cam) {
+      cam.object3D.position.set(homePos.x, homePos.y, homePos.z);
+      speechSynthesis.cancel();
+      var utt = new SpeechSynthesisUtterance(
+        currentLang === "fr" ? "Retour au point de départ" : "Returned to start"
+      );
+      if (ttsVoice) utt.voice = ttsVoice;
+      utt.lang = currentLang;
+      setTimeout(function () { speechSynthesis.speak(utt); }, 50);
     }
+  }
+});
+
+// CapsLock = play all text elements at once with distance-based volume
+document.addEventListener("keydown", function (event) {
+  if (!started) return;
+  if (event.code === "CapsLock") {
+    event.preventDefault();
+    playAllWithDistanceVolume();
   }
 });
 
