@@ -607,6 +607,8 @@ async function fetchWikipedia(input) {
   var data = parseWikipediaHTML(pageTitle, html);
   data._links = links.slice(0, 8); // Limit to 8 portal links
   data._lang = wikiLang;
+  data._rawHTML = html;
+  data._pageTitle = pageTitle;
   return data;
 }
 
@@ -946,27 +948,109 @@ function buildScene(data) {
   startSectionAmbients(data);
   createPortals(data);
   buildReadingOrder(data);
+  renderBackdrop(data);
 }
 
 function drawLayout(data) {
-  z = -d1;
+  // --- Spiral Layout ---
+  // Collect all elements in reading order: title, intro, then for each section:
+  // header, paragraph, subsection headers + paragraphs
+  var spiralItems = [];
 
-  var titleAudioId = data.Title._id;
-  var introAudioId = data.Introduction._id;
+  spiralItems.push({ type: "title", id: "title", audioId: data.Title._id, color: "#EF2D5E",
+    level: "title", ariaLabel: t("aria_sphere_title", { name: data.Title.text }),
+    text: data.Title.text, hierarchyLevel: "title" });
 
-  // Feature 6: Vertical dimension — title above, intro slightly below
-  var titleEl = createElement(sceneEl, x0, yLevel, z, "#EF2D5E", "title", "title", titleAudioId, true, "title",
-    t("aria_sphere_title", { name: data.Title.text }));
-  titleEl._hierarchyLevel = "title";
+  spiralItems.push({ type: "intro", id: "intro", audioId: data.Introduction._id, color: "#EF2D5E",
+    level: "title", ariaLabel: t("aria_sphere_intro"),
+    text: data.Introduction.text, hierarchyLevel: "intro" });
 
-  var introEl = createElement(titleEl, x0, 0, z, "#EF2D5E", "intro", "intro", introAudioId, true, "title",
-    t("aria_sphere_intro"));
-  introEl._hierarchyLevel = "intro";
+  if (data.Sections) {
+    Object.keys(data.Sections).forEach(function (key, i) {
+      var sec = data.Sections[key];
+      var level = key.startsWith("H3") ? "subsection" : "section";
+      var ariaKey = key.startsWith("H3") ? "aria_sphere_subsection" : "aria_sphere_section";
+
+      spiralItems.push({ type: "header", id: key + i, audioId: sec._id, color: "#00FFFF",
+        level: level, ariaLabel: t(ariaKey, { name: sec.text }),
+        text: sec.text, hierarchyLevel: level, sectionKey: key, sectionData: sec });
+
+      if (sec.P && sec.P.text && sec.P._id) {
+        spiralItems.push({ type: "p", id: key + i + "_p", audioId: sec.P._id, color: "#FFFF00",
+          level: "paragraph", ariaLabel: t("aria_sphere_paragraph", { name: sec.text }),
+          text: sec.P.text, hierarchyLevel: "paragraph", textLength: sec.P.text.length });
+      }
+
+      if (sec.Subsections) {
+        Object.keys(sec.Subsections).forEach(function (subKey, j) {
+          var sub = sec.Subsections[subKey];
+          var subLevel = subKey.startsWith("H3") ? "subsection" : "section";
+          var subAriaKey = subKey.startsWith("H3") ? "aria_sphere_subsection" : "aria_sphere_section";
+
+          spiralItems.push({ type: "header", id: subKey + j, audioId: sub._id, color: "#00FFFF",
+            level: subLevel, ariaLabel: t(subAriaKey, { name: sub.text }),
+            text: sub.text, hierarchyLevel: subLevel, sectionKey: subKey, sectionData: sub });
+
+          if (sub.P && sub.P.text && sub.P._id) {
+            spiralItems.push({ type: "p", id: subKey + j + "_p", audioId: sub.P._id, color: "#FFFF00",
+              level: "paragraph", ariaLabel: t("aria_sphere_paragraph", { name: sub.text }),
+              text: sub.P.text, hierarchyLevel: "paragraph", textLength: sub.P.text.length });
+          }
+        });
+      }
+    });
+  }
+
+  // Archimedean spiral: r = a + b * theta
+  // Spacing between elements along the spiral path
+  var spacing = 4;      // distance between consecutive elements along the spiral
+  var spiralGrowth = 0.6; // how fast the spiral expands (b parameter)
+  var startRadius = 3;    // starting radius from center (a parameter)
+
+  // Place title at center
+  var titleItem = spiralItems[0];
+  var titleEl = createElement(sceneEl, 0, yLevel, 0, titleItem.color, titleItem.type, titleItem.id,
+    titleItem.audioId, true, titleItem.level, titleItem.ariaLabel, titleItem.textLength);
+  titleEl._hierarchyLevel = titleItem.hierarchyLevel;
+
+  // Track min/max for bounds
+  minX = 0; maxX = 0; minZ = 0;
+  var maxZ = 0;
+
+  // Place remaining items along spiral
+  var theta = 0;
+  for (var si = 1; si < spiralItems.length; si++) {
+    var item = spiralItems[si];
+
+    // Advance theta so arc length ≈ spacing
+    // Arc length ds = sqrt(r² + (dr/dθ)²) dθ ≈ r * dθ for large r
+    var r = startRadius + spiralGrowth * theta;
+    var dTheta = spacing / Math.max(r, 1);
+    theta += dTheta;
+    r = startRadius + spiralGrowth * theta;
+
+    var sx = r * Math.cos(theta);
+    var sz = -r * Math.sin(theta); // negative Z = forward in A-Frame
+
+    var el = createElement(sceneEl, sx, yLevel, sz, item.color, item.type === "p" ? "p" : "header",
+      item.id, item.audioId, true, item.level, item.ariaLabel, item.textLength);
+    el._hierarchyLevel = item.hierarchyLevel;
+    if (item.sectionKey) {
+      el._sectionKey = item.sectionKey;
+      el._sectionData = item.sectionData;
+    }
+
+    // Update bounds
+    if (sx < minX) minX = sx;
+    if (sx > maxX) maxX = sx;
+    if (sz < minZ) minZ = sz;
+    if (sz > maxZ) maxZ = sz;
+  }
+
+  // Set z0 to max Z for boundary
+  z0 = maxZ;
 
   createElement(sceneEl, minX - margin, yLevel, z0 + margin, "#F0FFFF", "sound-cues", "bound", "bound-cue", false, null, "Boundary");
-
-  // Feature 5: Dynamic clustering — weight angular spread by content length
-  iterateSectionWeighted(x0, 0, z, d1, data.Sections, introEl, "Sections_", 0);
 
   sounds = document.querySelectorAll("a-sphere, a-cylinder");
   console.log("Total spheres created:", sounds.length);
@@ -1012,90 +1096,7 @@ function drawLayout(data) {
   }
 }
 
-// Feature 5: Weighted section iteration
-function iterateSectionWeighted(x, baseY, z, d, section, parentEl, prename, angle) {
-  var keys = Object.keys(section);
-  var numSections = keys.length;
-  if (numSections === 0) return;
-
-  // Calculate total weight for proportional angular distribution
-  var totalWeight = 0;
-  keys.forEach(function (key) {
-    totalWeight += sectionWeights[key] || 100;
-  });
-
-  var currentAngle = angle;
-
-  keys.forEach(function (key, i) {
-    var sec = section[key];
-    var name = prename + key.replace(":", "").replaceAll(" ", "_");
-    var headerAudioId = sec._id;
-    var level = key.startsWith("H3") ? "subsection" : "section";
-    var ariaKey = key.startsWith("H3") ? "aria_sphere_subsection" : "aria_sphere_section";
-
-    // Proportional angle based on weight
-    var weight = sectionWeights[key] || 100;
-    var angularShare = (weight / totalWeight) * Math.PI;
-    var midAngle = currentAngle + angularShare / 2;
-
-    var x1 = -d * Math.cos(midAngle);
-    var z1 = -d / 2 - d * Math.sin(midAngle);
-    var headerEl = createElement(parentEl, x1, 0, z1, "#00FFFF", "header", key + i, headerAudioId, true, level,
-      t(ariaKey, { name: sec.text }));
-    headerEl._sectionKey = key;
-    headerEl._hierarchyLevel = level;
-    headerEl._sectionData = sec;
-
-    if (sec.P && sec.P.text && sec.P._id) {
-      var xp = -dp * Math.cos(midAngle);
-      var zp = -dp * Math.sin(midAngle);
-      var pEl = createElement(headerEl, xp, 0, zp, "#FFFF00", "p", key + i + "_p", sec.P._id, true, "paragraph",
-        t("aria_sphere_paragraph", { name: sec.text }), sec.P.text.length);
-      pEl._hierarchyLevel = "paragraph";
-    }
-
-    if (sec.Subsections) {
-      iterateSection(x1, 0, z1, d2, sec.Subsections, headerEl, name + "_Subsections_", 0);
-    }
-
-    currentAngle += angularShare;
-  });
-}
-
-// Original iterateSection for subsections (non-weighted)
-function iterateSection(x, y, z, d, section, parentEl, prename, angle) {
-  var numSections = Object.keys(section).length;
-  var degStep = numSections === 1 ? Math.PI / 2 : Math.PI / (numSections - 1);
-
-  Object.keys(section).forEach(function (key, i) {
-    var sec = section[key];
-    var name = prename + key.replace(":", "").replaceAll(" ", "_");
-    var headerAudioId = sec._id;
-    var level = key.startsWith("H3") ? "subsection" : "section";
-    var ariaKey = key.startsWith("H3") ? "aria_sphere_subsection" : "aria_sphere_section";
-
-    var x1 = -d * Math.cos(degStep * i + angle);
-    var z1 = -d / 2 - d * Math.sin(degStep * i + angle);
-
-    var headerEl = createElement(parentEl, x1, y, z1, "#00FFFF", "header", key + i, headerAudioId, true, level,
-      t(ariaKey, { name: sec.text }));
-    headerEl._sectionKey = key;
-    headerEl._hierarchyLevel = level;
-    headerEl._sectionData = sec;
-
-    if (sec.P && sec.P.text && sec.P._id) {
-      var xp = -dp * Math.cos(degStep * i + angle);
-      var zp = -dp * Math.sin(degStep * i + angle);
-      var pEl = createElement(headerEl, xp, y, zp, "#FFFF00", "p", key + i + "_p", sec.P._id, true, "paragraph",
-        t("aria_sphere_paragraph", { name: sec.text }), sec.P.text.length);
-      pEl._hierarchyLevel = "paragraph";
-    }
-
-    if (sec.Subsections) {
-      iterateSection(x1, y, z1, d2, sec.Subsections, headerEl, name + "_Subsections_", 0);
-    }
-  });
-}
+// (Previous semicircular layout functions removed — now using spiral layout in drawLayout)
 
 function createElement(parentEl, x, y, z, color, className, id, soundId, autoPlay, beaconLevel, ariaLabel, textLength) {
   // Paragraphs become horizontal cylinders whose length reflects text length
@@ -1571,6 +1572,7 @@ function playSoundOnElement(el) {
 
   muteBeacon(el);
   markVisited(el); // Feature 8: breadcrumb
+  highlightBackdropSection(audioId); // Highlight corresponding section on the backdrop
 
   if (audioId && ttsTextMap[audioId]) {
     var text = ttsTextMap[audioId];
@@ -1843,6 +1845,184 @@ function cancelAutoDrift() {
 }
 
 // ============================================================
+// BACKDROP: Wikipedia article rendered behind the 3D scene
+// ============================================================
+var backdropSectionMap = {}; // maps sphere audio ID → backdrop DOM element
+
+function renderBackdrop(data) {
+  var backdrop = document.getElementById("wiki-backdrop");
+  if (!backdrop || !data._rawHTML) return;
+
+  // Parse the raw HTML into a clean document
+  var parser = new DOMParser();
+  var doc = parser.parseFromString(data._rawHTML, "text/html");
+
+  // Remove heavy/noisy elements but keep more than we do for TTS
+  doc.querySelectorAll(
+    ".mw-editsection, .navbox, .sistersitebox, style, script, " +
+    ".mw-references-wrap, .shortdescription, .mw-ext-cite-error"
+  ).forEach(function (el) { el.remove(); });
+
+  var body = doc.querySelector(".mw-parser-output") || doc.body;
+
+  // Add a title element
+  var titleH1 = document.createElement("h1");
+  titleH1.textContent = data._pageTitle || data.Title.text;
+  titleH1.id = "backdrop-title";
+  backdrop.appendChild(titleH1);
+
+  // Map title sphere to backdrop title
+  backdropSectionMap[data.Title._id] = titleH1;
+
+  // Insert the Wikipedia content
+  var contentDiv = document.createElement("div");
+  contentDiv.innerHTML = body.innerHTML;
+  backdrop.appendChild(contentDiv);
+
+  // Now walk through the backdrop to tag headings with IDs matching our sphere data
+  // Map introduction (all content before first H2)
+  var introWrapper = document.createElement("div");
+  introWrapper.id = "backdrop-intro";
+  var firstH2 = contentDiv.querySelector("h2, .mw-heading.mw-heading2");
+  var introNodes = [];
+  var child = contentDiv.firstChild;
+  while (child && child !== firstH2) {
+    // Check if this child contains an H2 (mw-heading wrapper)
+    if (child.nodeType === 1) {
+      var innerH2 = child.querySelector ? child.querySelector("h2") : null;
+      if (child.tagName === "H2" || (child.classList && child.classList.contains("mw-heading2")) || innerH2) break;
+    }
+    introNodes.push(child);
+    child = child.nextSibling;
+  }
+  introNodes.forEach(function (n) { introWrapper.appendChild(n); });
+  contentDiv.insertBefore(introWrapper, contentDiv.firstChild);
+  backdropSectionMap[data.Introduction._id] = introWrapper;
+
+  // Map each section heading
+  if (data.Sections) {
+    Object.keys(data.Sections).forEach(function (key) {
+      var sec = data.Sections[key];
+      var headingText = sec.text;
+
+      // Find the matching heading in the backdrop
+      var allHeadings = contentDiv.querySelectorAll("h2, h3, h4");
+      for (var i = 0; i < allHeadings.length; i++) {
+        var h = allHeadings[i];
+        var hText = h.textContent.replace(/\[edit\]/g, "").trim();
+        if (hText === headingText) {
+          // Wrap heading + its content in a section div
+          var sectionDiv = document.createElement("div");
+          sectionDiv.id = "backdrop-" + sec._id;
+          h.parentNode.insertBefore(sectionDiv, h);
+          sectionDiv.appendChild(h);
+
+          // Collect sibling elements until next same-level heading
+          var hLevel = parseInt(h.tagName.charAt(1));
+          var next = sectionDiv.nextSibling;
+          while (next) {
+            if (next.nodeType === 1) {
+              var nextTag = next.tagName;
+              // Check for mw-heading wrapper
+              if (next.classList && next.classList.contains("mw-heading")) {
+                var innerH = next.querySelector("h2, h3, h4, h5, h6");
+                if (innerH && parseInt(innerH.tagName.charAt(1)) <= hLevel) break;
+              }
+              if ((nextTag === "H2" || nextTag === "H3" || nextTag === "H4") &&
+                  parseInt(nextTag.charAt(1)) <= hLevel) break;
+            }
+            var toMove = next;
+            next = next.nextSibling;
+            sectionDiv.appendChild(toMove);
+          }
+
+          // Map header sphere
+          backdropSectionMap[sec._id] = sectionDiv;
+
+          // Map paragraph sphere to same section
+          if (sec.P && sec.P._id) {
+            backdropSectionMap[sec.P._id] = sectionDiv;
+          }
+          break;
+        }
+      }
+
+      // Also map subsections
+      if (sec.Subsections) {
+        Object.keys(sec.Subsections).forEach(function (subKey) {
+          var sub = sec.Subsections[subKey];
+          var subText = sub.text;
+          var allH3 = contentDiv.querySelectorAll("h3, h4");
+          for (var j = 0; j < allH3.length; j++) {
+            var sh = allH3[j];
+            var shText = sh.textContent.replace(/\[edit\]/g, "").trim();
+            if (shText === subText) {
+              backdropSectionMap[sub._id] = sh.closest("div[id^='backdrop-']") || sh;
+              if (sub.P && sub.P._id) {
+                backdropSectionMap[sub.P._id] = sh.closest("div[id^='backdrop-']") || sh;
+              }
+              break;
+            }
+          }
+        });
+      }
+    });
+  }
+
+  // Show the backdrop
+  backdrop.classList.add("visible");
+
+  // Make A-Frame scene transparent
+  var scene = document.querySelector("a-scene");
+  if (scene && scene.canvas) {
+    makeSceneTransparent();
+  } else {
+    document.querySelector("a-scene").addEventListener("loaded", makeSceneTransparent);
+  }
+
+  console.log("Backdrop rendered with", Object.keys(backdropSectionMap).length, "section mappings");
+}
+
+function makeSceneTransparent() {
+  var scene = document.querySelector("a-scene");
+  if (!scene) return;
+
+  // Make the A-Frame renderer transparent
+  if (scene.renderer) {
+    scene.renderer.setClearColor(0x000000, 0);
+    scene.renderer.setClearAlpha(0);
+  }
+
+  // Make sky and floor semi-transparent
+  var sky = document.querySelector("a-sky");
+  if (sky) sky.setAttribute("material", "color: #ECECEC; opacity: 0.3; transparent: true");
+
+  var floor = document.querySelector("#floor");
+  if (floor) floor.setAttribute("material", "color: #7BC8A4; opacity: 0.15; transparent: true");
+}
+
+var currentHighlight = null;
+
+function highlightBackdropSection(audioId) {
+  var backdrop = document.getElementById("wiki-backdrop");
+  if (!backdrop || !backdrop.classList.contains("visible")) return;
+
+  // Remove previous highlight
+  if (currentHighlight) {
+    currentHighlight.classList.remove("sts-highlight");
+  }
+
+  var target = backdropSectionMap[audioId];
+  if (!target) return;
+
+  target.classList.add("sts-highlight");
+  currentHighlight = target;
+
+  // Smooth scroll the backdrop to the highlighted section
+  target.scrollIntoView({ behavior: "smooth", block: "center" });
+}
+
+// ============================================================
 // AUTO-ANNOUNCE
 // ============================================================
 function tryAutoAnnounce(sphereEl, dist) {
@@ -1856,6 +2036,7 @@ function tryAutoAnnounce(sphereEl, dist) {
 
   lastAnnouncedId = audioId;
   lastAnnounceTime = now;
+  highlightBackdropSection(audioId);
 
   var heading = headingTextMap[audioId];
   var utterance = new SpeechSynthesisUtterance(heading);
