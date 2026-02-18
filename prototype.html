@@ -129,7 +129,19 @@
                 <div class="content-block">
                     <h3>Real-Time Wikipedia Demo</h3>
                     <p>Explore any Wikipedia article as a 3D spatial audio soundscape. Enter a URL, and the system fetches the article, converts text to speech, and builds an interactive scene in real time. Available in English and French.</p>
-                    <p><a href="scripts/realtime.html" target="_blank" rel="noopener noreferrer">Try the Real-Time Demo</a></p>
+                    <p><a href="scripts/realtime.html" target="_blank" rel="noopener noreferrer">Open full-screen demo</a></p>
+
+                    <div id="proto-wrapper" style="position:relative; margin-top:20px;">
+                        <iframe id="proto-iframe" src="scripts/realtime.html"
+                            style="width:100%; height:600px; border:1px solid #ccc; border-radius:6px; background:#1a1a2e;"
+                            allow="autoplay; microphone"
+                            loading="lazy"
+                            title="Screen-to-Soundscape Real-Time Prototype">
+                        </iframe>
+                    </div>
+                    <p style="text-align:center; font-size:0.85rem; color:#888; margin-top:8px;">
+                        <a href="scripts/realtime.html" target="_blank">Open full-screen</a> for the best experience. Best with headphones.
+                    </p>
                 </div>
 
                 <!-- Sound Guide -->
@@ -140,16 +152,24 @@
                     <h4>Core Audio</h4>
                     <ul>
                         <li><strong>Section speech</strong> — When you approach a sphere, the section's text is read aloud using text-to-speech. Volume scales with distance — closer sections are louder, distant ones are quieter.</li>
-                        <li><strong>Images and tables</strong> — Image captions/alt-text and table data are extracted from the Wikipedia article and included in the soundscape, so visual content is not skipped.</li>
-                        <li><strong>Beacon tones</strong> — Each sphere emits a quiet, looping tone so you can locate it by ear. The pitch indicates hierarchy:
+                        <li><strong>Singing bowl beacons</strong> — All unvisited elements emit a gentle, looping singing bowl tone from their 3D position, like overhearing conversations at a party. Each hierarchy level has a distinct pitch:
                             <ul>
-                                <li>Low tone (130 Hz) — Article title</li>
-                                <li>Mid-low tone (220 Hz) — Main sections (H2 headings)</li>
-                                <li>Mid tone (330 Hz) — Subsections (H3 headings)</li>
-                                <li>Higher tone (440 Hz) — Paragraphs</li>
+                                <li>Deep bowl (174 Hz) — Article title</li>
+                                <li>Mid bowl (264 Hz) — Main sections (H2 headings)</li>
+                                <li>Bright bowl (396 Hz) — Subsections (H3 headings)</li>
+                                <li>Gentle bowl (480 Hz) — Paragraphs</li>
                             </ul>
+                            The guide element (next unvisited in reading order) pulses louder to stand out. Visited elements go silent, so the soundscape thins as you progress. All beacons mute during speech for clean listening.
                         </li>
-                        <li><strong>Auto-announce</strong> — As you approach a section sphere (within about 5 units), its heading is spoken automatically.</li>
+                        <li><strong>Spatial summary on arrival</strong> — After the introductory audio, a spoken overview announces how many sections the article has and names the first few, giving you orientation before you start exploring.</li>
+                        <li><strong>Content sonification</strong> — Images and tables have distinct sonic markers:
+                            <ul>
+                                <li>Images (orange diamond shapes) — A camera shutter click plays before the image description is read</li>
+                                <li>Tables (blue flat shapes) — Three ascending beeps play before the table data is read</li>
+                            </ul>
+                            Up to 3 images and 2 tables are placed as separate elements in the scene, so visual content is not skipped.
+                        </li>
+                        <li><strong>Auto-announce</strong> — As you approach a section sphere (within about 6 units), its heading is spoken automatically.</li>
                         <li><strong>Ambient background</strong> — A soft, layered drone plays continuously, combining low-frequency tones (55 Hz, 82.5 Hz, 110 Hz) with gentle filtered noise.</li>
                         <li><strong>Section ambiences</strong> — Each major section has its own subtle ambient texture, creating audio "neighborhoods" that change as you move through the article.</li>
                         <li><strong>Boundary sound</strong> — A percussive "bump" sound plays when you reach the edge of the scene.</li>
@@ -166,23 +186,22 @@
                         <li><strong>"Where am I?" (Tab key)</strong> — Press Tab to hear a spoken summary of your position: which section is nearest, and how many sections are to your left, right, and ahead.</li>
                         <li><strong>Return to start (Escape key)</strong> — Press Escape to teleport back to where you first landed. Useful if you get lost in a large article.</li>
                         <li><strong>Breadcrumb trail</strong> — Visited spheres change color (dimmed) so you can visually track where you've been. A quiet click plays when you revisit an already-visited section.</li>
-                        <li><strong>Single guide beacon</strong> — Only one beacon is audible at a time: the next unvisited element in reading order. All other elements are silent. The beacon pulses — faster and louder as you get closer (like sonar), slower and quieter when far away. This creates a clear "follow me" signal without the confusion of multiple overlapping tones.</li>
                         <li><strong>Dynamic floor</strong> — The green floor plane resizes to match the article's element layout, giving a visual boundary for the soundscape.</li>
                     </ul>
 
                     <h4>Layout &amp; Structure</h4>
                     <ul>
-                        <li><strong>Meandering river layout</strong> — Elements follow a winding S-curve path going forward, like a river weaving through a landscape. Walk forward to progress through the article in reading order. The path swings left and right, with paragraphs offset to the outside of each curve and subsections slightly inset, creating a natural sense of journey through the content.</li>
-                        <li><strong>All at ear level</strong> — All elements (title, sections, subsections, paragraphs) are placed at the same height (y=1.6) for consistent audio. This ensures you can hear every element equally as you walk through the scene.</li>
-                        <li><strong>Content-length shapes</strong> — Headers appear as spheres, while paragraphs appear as horizontal cylinders whose length reflects the amount of text. Short paragraphs are short cylinders; long paragraphs stretch out, giving a visual and spatial sense of how much content each section contains.</li>
-                        <li><strong>Wikipedia article panel</strong> — The original Wikipedia article is displayed in a panel at the top of the screen. As you approach and play sections, the corresponding text is highlighted in green and auto-scrolled into view, letting you see exactly where you are in the article.</li>
+                        <li><strong>Linear path layout</strong> — Elements are placed along a forward path going into the scene. Walk forward to progress through the article in reading order. Headers are centered, paragraphs offset to the right, subsections slightly to the left, images further right, and tables further left.</li>
+                        <li><strong>All at ear level</strong> — All elements (title, sections, subsections, paragraphs, images, tables) are placed at the same height (y=1.6) for consistent audio.</li>
+                        <li><strong>Content-type shapes</strong> — Headers appear as spheres, paragraphs as horizontal cylinders (length reflects text amount), images as orange rotated diamond boxes, and tables as blue flat wide boxes.</li>
+                        <li><strong>Wikipedia article panel</strong> — The original Wikipedia article is displayed in a panel at the top of the screen. As you approach and play sections, the corresponding text is highlighted in green and auto-scrolled into view.</li>
                     </ul>
 
                     <h4>Interactive Features</h4>
                     <ul>
-                        <li><strong>Auto-advance</strong> — When the current element finishes speaking and you haven't moved, the camera gently drifts toward the next element in reading order (header → its paragraph → next header → its paragraph, and so on). A brief "Next: [section name]" announcement plays as you begin drifting. Move any arrow key or touch the screen to cancel the drift and take manual control.</li>
-                        <li><strong>Play all by distance (P key)</strong> — Press P to hear all text elements read aloud sequentially, starting with the nearest. Volume is based on distance — closer sections are louder, farther ones quieter. Press P again to stop.</li>
-                        <li><strong>Link portals</strong> — Wikipedia links from the article appear as magenta spinning spheres at the edges of the scene. Walking into a portal announces the linked article title. Press Enter to load it as a new soundscape, or simply walk away to stay on the current page.</li>
+                        <li><strong>Auto-advance</strong> — When the current element finishes speaking and you haven't moved, the camera gently drifts toward the next element in reading order. Move any arrow key or touch the screen to cancel the drift and take manual control.</li>
+                        <li><strong>Play all by distance (P key)</strong> — Press P to hear all text elements read aloud sequentially, starting with the nearest. Volume is based on distance. Press P again to stop.</li>
+                        <li><strong>Link portals</strong> — Wikipedia links from the article appear as magenta spinning spheres at the edges of the scene. Walking into a portal announces the linked article title. Press Enter to load it as a new soundscape.</li>
                     </ul>
 
                     <h4>Keyboard Controls</h4>
@@ -354,5 +373,27 @@
     </script>
     <!-- Audio Proximity Interaction -->
     <script src="scripts/audio-proximity.js"></script>
+    <!-- Prevent parent scroll when interacting with prototype iframe -->
+    <script>
+    (function() {
+        var wrapper = document.getElementById('proto-wrapper');
+        if (!wrapper) return;
+        var savedOverflow = '';
+        wrapper.addEventListener('mouseenter', function() {
+            savedOverflow = document.body.style.overflow;
+            document.body.style.overflow = 'hidden';
+        });
+        wrapper.addEventListener('mouseleave', function() {
+            document.body.style.overflow = savedOverflow;
+        });
+        wrapper.addEventListener('touchstart', function() {
+            savedOverflow = document.body.style.overflow;
+            document.body.style.overflow = 'hidden';
+        }, { passive: true });
+        wrapper.addEventListener('touchend', function() {
+            setTimeout(function() { document.body.style.overflow = savedOverflow; }, 300);
+        }, { passive: true });
+    })();
+    </script>
 </body>
 </html>
