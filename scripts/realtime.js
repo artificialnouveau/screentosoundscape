@@ -68,6 +68,23 @@ var homePos = { x: 0, y: 1.6, z: 0 };
 var visitedSpheres = {};
 var breadcrumbClickBlob = null;
 
+// --- Directional next beacon ---
+var nextBeaconCtx = null;
+var nextBeaconGain = null;
+var nextBeaconPanner = null;
+var nextBeaconInterval = null;
+
+// --- Room acoustics (reverb per section) ---
+var reverbCtx = null;
+var reverbConvolver = null;
+var reverbDry = null;
+var reverbWet = null;
+var currentReverbProfile = null;
+
+// --- Audio landmarks at section boundaries ---
+var landmarkCtx = null;
+var lastLandmarkSection = null;
+
 // --- Feature 10: Portals ---
 var portalLinks = [];
 var currentArticleData = null;
@@ -81,6 +98,7 @@ var autoAdvanceTarget = null;
 var driftSpeed = 0.03;       // units per tick (~60 ticks/sec → ~1.8 units/sec)
 var lastUserMoveTime = 0;
 var lastAutoPlayedEl = null;  // prevent re-triggering on the element we just played
+var suppressOnSpeechFinished = false; // guard against cancel() firing onend
 
 // --- Language ---
 var currentLang = "en";
@@ -1002,11 +1020,14 @@ function addAudioElement(id, srcUrl) {
 // BUILD 3D SCENE
 // ============================================================
 function buildScene(data) {
+  currentArticleData = data;
   drawLayout(data);
   startSectionAmbients(data);
   createPortals(data);
   buildReadingOrder(data);
   renderBackdrop(data);
+  initNextBeacon();
+  initLandmarks();
 }
 
 function drawLayout(data) {
@@ -1641,6 +1662,9 @@ function playSoundOnElement(el) {
   markVisited(el); // Feature 8: breadcrumb
   highlightBackdropSection(audioId); // Highlight corresponding section on the backdrop
 
+  // Audio landmark — play transition sound when entering a new section
+  if (el._sectionKey) checkLandmarkTransition(el._sectionKey);
+
   if (audioId && ttsTextMap[audioId]) {
     var text = ttsTextMap[audioId];
     var vol = getDistanceVolume(el); // Feature 3: distance filtering
@@ -1842,6 +1866,7 @@ function findInReadingOrder(el) {
 }
 
 function onSpeechFinished(el) {
+  if (suppressOnSpeechFinished) return; // ignore onend fired by cancel()
   if (playAllActive) return; // don't interfere with play-all mode
   var idx = findInReadingOrder(el);
   if (idx < 0 || idx >= readingOrder.length - 1) return;
@@ -1888,8 +1913,11 @@ function updateAutoDrift() {
     autoAdvanceActive = false;
     lastAutoPlayedEl = null;
 
-    // Play the target element directly instead of relying on collide
+    // Suppress onSpeechFinished during cancel to prevent bounce-back
+    suppressOnSpeechFinished = true;
     if (ttsMode === "webspeech") speechSynthesis.cancel();
+    // Clear suppress after cancel's onend has fired (microtask)
+    setTimeout(function () { suppressOnSpeechFinished = false; }, 0);
     playSoundOnElement(autoAdvanceTarget);
     sounds.forEach(function (s) {
       if (s !== autoAdvanceTarget) pauseSoundOnElement(s);
@@ -2077,6 +2105,166 @@ function highlightBackdropSection(audioId) {
 }
 
 // ============================================================
+// DIRECTIONAL NEXT BEACON
+// A subtle tick from the direction of the next unvisited element
+// ============================================================
+function initNextBeacon() {
+  try {
+    nextBeaconCtx = new (window.AudioContext || window.webkitAudioContext)();
+    nextBeaconGain = nextBeaconCtx.createGain();
+    nextBeaconGain.gain.value = 0.08;
+    nextBeaconPanner = nextBeaconCtx.createPanner();
+    nextBeaconPanner.panningModel = "HRTF";
+    nextBeaconPanner.distanceModel = "inverse";
+    nextBeaconPanner.refDistance = 1;
+    nextBeaconPanner.maxDistance = 100;
+    nextBeaconPanner.rolloffFactor = 1;
+    nextBeaconPanner.connect(nextBeaconGain);
+    nextBeaconGain.connect(nextBeaconCtx.destination);
+
+    nextBeaconInterval = setInterval(playNextBeaconTick, 2000);
+  } catch (e) { console.warn("Next beacon init failed:", e); }
+}
+
+function playNextBeaconTick() {
+  if (!nextBeaconCtx || !sounds || !started) return;
+  if (speechSynthesis.speaking) return; // don't tick while speech is playing
+
+  var cam = document.querySelector("[camera]");
+  if (!cam) return;
+  var cx = cam.object3D.position.x;
+  var cz = cam.object3D.position.z;
+
+  // Find nearest unvisited element
+  var nearest = null;
+  var nearDist = Infinity;
+  var wp = new THREE.Vector3();
+  for (var i = 0; i < readingOrder.length; i++) {
+    var el = readingOrder[i];
+    var aid = getAudioIdFromSound(el);
+    if (visitedSpheres[aid]) continue;
+    try {
+      el.getObject3D("mesh").getWorldPosition(wp);
+      var d = distance(cx, cz, wp.x, wp.z);
+      if (d < nearDist) { nearDist = d; nearest = { x: wp.x, z: wp.z }; }
+    } catch (e) {}
+  }
+
+  if (!nearest || nearDist < proxi) return; // already there or nothing left
+
+  // Position the panner in the direction of the next element
+  var dx = nearest.x - cx;
+  var dz = nearest.z - cz;
+  var len = Math.sqrt(dx * dx + dz * dz);
+  nextBeaconPanner.positionX.setValueAtTime(dx / len * 5, nextBeaconCtx.currentTime);
+  nextBeaconPanner.positionY.setValueAtTime(0, nextBeaconCtx.currentTime);
+  nextBeaconPanner.positionZ.setValueAtTime(dz / len * 5, nextBeaconCtx.currentTime);
+
+  // Short tick sound
+  var osc = nextBeaconCtx.createOscillator();
+  osc.type = "sine";
+  osc.frequency.value = 800;
+  var tickGain = nextBeaconCtx.createGain();
+  tickGain.gain.setValueAtTime(0.15, nextBeaconCtx.currentTime);
+  tickGain.gain.exponentialRampToValueAtTime(0.001, nextBeaconCtx.currentTime + 0.08);
+  osc.connect(tickGain);
+  tickGain.connect(nextBeaconPanner);
+  osc.start(nextBeaconCtx.currentTime);
+  osc.stop(nextBeaconCtx.currentTime + 0.08);
+}
+
+// ============================================================
+// AUDIO LANDMARKS at section boundaries
+// Distinct sounds when entering a new major section area
+// ============================================================
+function initLandmarks() {
+  try {
+    landmarkCtx = new (window.AudioContext || window.webkitAudioContext)();
+  } catch (e) { console.warn("Landmark audio init failed:", e); }
+}
+
+function checkLandmarkTransition(sectionKey) {
+  if (!landmarkCtx || !sectionKey || sectionKey === lastLandmarkSection) return;
+  lastLandmarkSection = sectionKey;
+
+  // Pick a landmark sound based on section index
+  var keys = Object.keys(currentArticleData ? currentArticleData.Sections || {} : {});
+  var idx = keys.indexOf(sectionKey);
+  if (idx < 0) idx = 0;
+
+  var soundType = idx % 3; // cycle through water drop, chime, wind
+  var t = landmarkCtx.currentTime;
+
+  if (soundType === 0) {
+    // Water drop — descending pitch
+    var osc = landmarkCtx.createOscillator();
+    osc.type = "sine";
+    osc.frequency.setValueAtTime(1200, t);
+    osc.frequency.exponentialRampToValueAtTime(200, t + 0.15);
+    var g = landmarkCtx.createGain();
+    g.gain.setValueAtTime(0.2, t);
+    g.gain.exponentialRampToValueAtTime(0.001, t + 0.3);
+    osc.connect(g); g.connect(landmarkCtx.destination);
+    osc.start(t); osc.stop(t + 0.3);
+  } else if (soundType === 1) {
+    // Soft chime — two harmonics
+    [523, 659].forEach(function (freq, fi) {
+      var osc = landmarkCtx.createOscillator();
+      osc.type = "sine";
+      osc.frequency.value = freq;
+      var g = landmarkCtx.createGain();
+      g.gain.setValueAtTime(0.15, t + fi * 0.1);
+      g.gain.exponentialRampToValueAtTime(0.001, t + fi * 0.1 + 0.4);
+      osc.connect(g); g.connect(landmarkCtx.destination);
+      osc.start(t + fi * 0.1); osc.stop(t + fi * 0.1 + 0.4);
+    });
+  } else {
+    // Wind gust — filtered noise
+    var bufSize = landmarkCtx.sampleRate * 0.5;
+    var buf = landmarkCtx.createBuffer(1, bufSize, landmarkCtx.sampleRate);
+    var data = buf.getChannelData(0);
+    for (var i = 0; i < bufSize; i++) data[i] = (Math.random() * 2 - 1) * 0.3;
+    var src = landmarkCtx.createBufferSource();
+    src.buffer = buf;
+    var filt = landmarkCtx.createBiquadFilter();
+    filt.type = "bandpass";
+    filt.frequency.value = 400;
+    filt.Q.value = 2;
+    var g = landmarkCtx.createGain();
+    g.gain.setValueAtTime(0, t);
+    g.gain.linearRampToValueAtTime(0.12, t + 0.1);
+    g.gain.linearRampToValueAtTime(0, t + 0.5);
+    src.connect(filt); filt.connect(g); g.connect(landmarkCtx.destination);
+    src.start(t); src.stop(t + 0.5);
+  }
+}
+
+// ============================================================
+// BEHIND = VISITED — dim beacons on visited elements
+// ============================================================
+function updateVisitedBeaconVolumes() {
+  if (!sounds) return;
+  var cam = document.querySelector("[camera]");
+  if (!cam) return;
+  var cx = cam.object3D.position.x;
+  var cz = cam.object3D.position.z;
+
+  sounds.forEach(function (s) {
+    var audioId = getAudioIdFromSound(s);
+    var beaconComp = s.components && s.components.sound__beacon;
+    if (!beaconComp) return;
+
+    if (visitedSpheres[audioId]) {
+      // Visited: quieter beacon
+      try { beaconComp.el.setAttribute("sound__beacon", "volume", 0.05); } catch (e) {}
+    } else {
+      // Unvisited: normal beacon volume
+      try { beaconComp.el.setAttribute("sound__beacon", "volume", 0.3); } catch (e) {}
+    }
+  });
+}
+
+// ============================================================
 // AUTO-ANNOUNCE
 // ============================================================
 function tryAutoAnnounce(sphereEl, dist) {
@@ -2186,10 +2374,17 @@ AFRAME.registerComponent("hit-bounds", {
 
 // Feature 1: Footstep tracker component
 AFRAME.registerComponent("footstep-tracker", {
+  init: function () { this._visitedCheckCounter = 0; },
   tick: function () {
     updateFootsteps();
     updateSectionAmbients(); // Feature 2
     updateAutoDrift(); // Auto-advance drift
+    // Update visited beacon volumes every ~60 ticks (once per second)
+    this._visitedCheckCounter = (this._visitedCheckCounter || 0) + 1;
+    if (this._visitedCheckCounter >= 60) {
+      this._visitedCheckCounter = 0;
+      updateVisitedBeaconVolumes();
+    }
   }
 });
 
@@ -2227,7 +2422,9 @@ AFRAME.registerComponent("collide", {
 
       checkCollide = true;
       collide = false;
+      suppressOnSpeechFinished = true;
       if (ttsMode === "webspeech") speechSynthesis.cancel();
+      setTimeout(function () { suppressOnSpeechFinished = false; }, 0);
       playSoundOnElement(this.el);
       sounds.forEach(function (s) {
         if (s !== this.el) pauseSoundOnElement(s);
