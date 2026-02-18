@@ -22,6 +22,12 @@ window.addEventListener("DOMContentLoaded", (event) => {
   showStartOverlay();
 });
 
+//////////////// MOBILE DETECTION ////////////////
+function isMobile() {
+  return /Android|iPhone|iPad|iPod|webOS|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent)
+    || (navigator.maxTouchPoints && navigator.maxTouchPoints > 1);
+}
+
 //////////////// START OVERLAY ////////////////
 let started = false;
 function showStartOverlay() {
@@ -34,7 +40,11 @@ function showStartOverlay() {
     '<div style="color:white;font-family:sans-serif;text-align:center;">' +
     '<h1 style="font-size:2rem;margin-bottom:1rem;">Screen-to-Soundscape</h1>' +
     '<p style="font-size:1.2rem;">Click anywhere or press any key to start</p>' +
-    '<p style="font-size:0.9rem;margin-top:1rem;opacity:0.7;">Use arrow keys to navigate, spacebar to play/pause, shift to find nearest sound</p>' +
+    '<p style="font-size:0.9rem;margin-top:1rem;opacity:0.7;">' +
+    (isMobile()
+      ? 'Use on-screen buttons to move, tilt to look around, center button to play/pause'
+      : 'Use arrow keys to navigate, spacebar to play/pause, shift to find nearest sound') +
+    '</p>' +
     "</div>";
   document.body.appendChild(overlay);
 
@@ -622,3 +632,128 @@ function distance(x1, z1, x2, z2) {
 // Resume AudioContext on any click/key (handles both Chrome and Firefox autoplay policy)
 document.addEventListener("click", resumeAudio);
 document.addEventListener("keydown", resumeAudio);
+
+//////////////// MOBILE TOUCH CONTROLS ////////////////
+function addMobileControls() {
+  if (!isMobile()) return;
+
+  var moveSpeed = 0.15;
+  var moveInterval = null;
+  var activeDir = null;
+
+  // Container for controls
+  var container = document.createElement("div");
+  container.id = "mobile-controls";
+  container.style.cssText =
+    "position:fixed;bottom:20px;left:50%;transform:translateX(-50%);z-index:9998;" +
+    "display:flex;flex-direction:column;align-items:center;gap:6px;pointer-events:none;";
+
+  // D-pad style layout
+  var topRow = document.createElement("div");
+  topRow.style.cssText = "display:flex;gap:6px;pointer-events:none;";
+  var midRow = document.createElement("div");
+  midRow.style.cssText = "display:flex;gap:6px;pointer-events:none;";
+  var botRow = document.createElement("div");
+  botRow.style.cssText = "display:flex;gap:6px;pointer-events:none;";
+
+  function makeBtn(label, dir) {
+    var btn = document.createElement("button");
+    btn.textContent = label;
+    btn.style.cssText =
+      "width:60px;height:60px;font-size:24px;border:none;border-radius:50%;" +
+      "background:rgba(255,255,255,0.5);color:#333;pointer-events:auto;" +
+      "touch-action:none;user-select:none;-webkit-user-select:none;" +
+      "display:flex;align-items:center;justify-content:center;";
+
+    function startMove(e) {
+      e.preventDefault();
+      resumeAudio();
+      activeDir = dir;
+      collide = true;
+      doMove();
+      moveInterval = setInterval(doMove, 50);
+    }
+    function stopMove(e) {
+      e.preventDefault();
+      activeDir = null;
+      if (moveInterval) { clearInterval(moveInterval); moveInterval = null; }
+    }
+
+    btn.addEventListener("touchstart", startMove, { passive: false });
+    btn.addEventListener("touchend", stopMove, { passive: false });
+    btn.addEventListener("touchcancel", stopMove, { passive: false });
+    return btn;
+  }
+
+  function doMove() {
+    if (!activeDir) return;
+    var cameraEl = document.querySelector("a-camera");
+    if (!cameraEl) return;
+    var pos = cameraEl.object3D.position;
+    var rot = cameraEl.object3D.rotation;
+
+    // Get camera's forward direction (yaw only)
+    var yaw = rot.y;
+    var forwardX = -Math.sin(yaw);
+    var forwardZ = -Math.cos(yaw);
+    var rightX = Math.cos(yaw);
+    var rightZ = -Math.sin(yaw);
+
+    if (activeDir === "forward") {
+      pos.x += forwardX * moveSpeed;
+      pos.z += forwardZ * moveSpeed;
+    } else if (activeDir === "backward") {
+      pos.x -= forwardX * moveSpeed;
+      pos.z -= forwardZ * moveSpeed;
+    } else if (activeDir === "left") {
+      pos.x -= rightX * moveSpeed;
+      pos.z -= rightZ * moveSpeed;
+    } else if (activeDir === "right") {
+      pos.x += rightX * moveSpeed;
+      pos.z += rightZ * moveSpeed;
+    }
+    collide = true;
+  }
+
+  // Spacer for layout
+  function makeSpacer() {
+    var sp = document.createElement("div");
+    sp.style.cssText = "width:60px;height:60px;pointer-events:none;";
+    return sp;
+  }
+
+  topRow.appendChild(makeSpacer());
+  topRow.appendChild(makeBtn("\u25B2", "forward"));
+  topRow.appendChild(makeSpacer());
+
+  midRow.appendChild(makeBtn("\u25C0", "left"));
+  // Play/pause button in center
+  var pauseBtn = document.createElement("button");
+  pauseBtn.textContent = "\u23EF";
+  pauseBtn.style.cssText =
+    "width:60px;height:60px;font-size:20px;border:none;border-radius:50%;" +
+    "background:rgba(255,255,255,0.5);color:#333;pointer-events:auto;" +
+    "touch-action:none;user-select:none;-webkit-user-select:none;" +
+    "display:flex;align-items:center;justify-content:center;";
+  pauseBtn.addEventListener("touchstart", function(e) {
+    e.preventDefault();
+    resumeAudio();
+    if (sounds) { checkCollide = false; checkAudio(sounds); }
+  }, { passive: false });
+  midRow.appendChild(pauseBtn);
+  midRow.appendChild(makeBtn("\u25B6", "right"));
+
+  botRow.appendChild(makeSpacer());
+  botRow.appendChild(makeBtn("\u25BC", "backward"));
+  botRow.appendChild(makeSpacer());
+
+  container.appendChild(topRow);
+  container.appendChild(midRow);
+  container.appendChild(botRow);
+  document.body.appendChild(container);
+}
+
+// Add mobile controls once the scene is ready
+window.addEventListener("DOMContentLoaded", function() {
+  addMobileControls();
+});
