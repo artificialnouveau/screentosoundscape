@@ -1636,33 +1636,12 @@ function playSoundOnElement(el) {
     var text = ttsTextMap[audioId];
     var vol = getDistanceVolume(el); // Feature 3: distance filtering
 
-    // Voice differentiation by hierarchy level
-    var level = el._hierarchyLevel || "paragraph";
-    var pitch = 1.0;
-    var rate = 1.0;
-    if (level === "title") {
-      pitch = 0.75;  // deep, authoritative
-      rate = 0.85;
-    } else if (level === "intro") {
-      pitch = 0.85;
-      rate = 0.9;
-    } else if (level === "section") {
-      pitch = 1.15;  // slightly higher, distinct from paragraphs
-      rate = 0.95;
-    } else if (level === "subsection") {
-      pitch = 1.3;   // higher still
-      rate = 0.95;
-    } else { // paragraph
-      pitch = 1.0;   // natural
-      rate = 1.0;
-    }
-
     setTimeout(function () {
       var utterance = new SpeechSynthesisUtterance(text);
       if (ttsVoice) utterance.voice = ttsVoice;
       utterance.lang = currentLang;
-      utterance.rate = rate;
-      utterance.pitch = pitch;
+      utterance.rate = 1.0;
+      utterance.pitch = 1.0;
       utterance.volume = vol;
       utterance.onend = function () { unmuteBeacon(el); onSpeechFinished(el); };
       utterance.onerror = function () { unmuteBeacon(el); };
