@@ -102,31 +102,33 @@
       #progress-bar { transition: none; }
     }
 
-    /* Background Wikipedia article viewer */
+    /* Wikipedia article panel — fixed at top */
     #wiki-backdrop {
       display: none;
       position: fixed;
       top: 0; left: 0;
-      width: 100%; height: 100%;
+      width: 100%; height: 30vh;
       overflow-y: auto;
       background: #fff;
       color: #222;
       font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-      font-size: 15px;
-      line-height: 1.6;
-      z-index: 0;
-      padding: 20px 5% 80px;
+      font-size: 14px;
+      line-height: 1.5;
+      z-index: 10;
+      padding: 10px 4% 10px;
+      border-bottom: 3px solid #0f9;
+      box-shadow: 0 2px 12px rgba(0,0,0,0.15);
     }
     #wiki-backdrop.visible { display: block; }
 
-    #wiki-backdrop h1 { font-size: 1.8rem; margin-bottom: 0.5rem; border-bottom: 1px solid #ccc; padding-bottom: 8px; }
-    #wiki-backdrop h2 { font-size: 1.4rem; margin-top: 1.5rem; margin-bottom: 0.4rem; border-bottom: 1px solid #eee; padding-bottom: 4px; }
-    #wiki-backdrop h3 { font-size: 1.15rem; margin-top: 1.2rem; margin-bottom: 0.3rem; }
-    #wiki-backdrop p { margin-bottom: 0.8rem; }
+    #wiki-backdrop h1 { font-size: 1.3rem; margin-bottom: 0.3rem; border-bottom: 1px solid #ccc; padding-bottom: 4px; }
+    #wiki-backdrop h2 { font-size: 1.1rem; margin-top: 1rem; margin-bottom: 0.3rem; border-bottom: 1px solid #eee; padding-bottom: 3px; }
+    #wiki-backdrop h3 { font-size: 1rem; margin-top: 0.8rem; margin-bottom: 0.2rem; }
+    #wiki-backdrop p { margin-bottom: 0.5rem; }
     #wiki-backdrop img { max-width: 100%; height: auto; }
     #wiki-backdrop a { color: #0645ad; }
-    #wiki-backdrop table { border-collapse: collapse; margin: 10px 0; font-size: 0.9rem; }
-    #wiki-backdrop th, #wiki-backdrop td { border: 1px solid #ccc; padding: 4px 8px; }
+    #wiki-backdrop table { border-collapse: collapse; margin: 8px 0; font-size: 0.85rem; }
+    #wiki-backdrop th, #wiki-backdrop td { border: 1px solid #ccc; padding: 3px 6px; }
 
     /* Highlighted section */
     #wiki-backdrop .sts-highlight {
@@ -137,9 +139,10 @@
       transition: background 0.4s, outline-color 0.4s;
     }
 
-    /* A-Frame scene sits on top but is semi-transparent */
+    /* Push A-Frame scene below the backdrop panel */
     .a-canvas {
-      z-index: 1 !important;
+      top: 30vh !important;
+      height: 70vh !important;
     }
   </style>
   <script src="realtime.js" defer></script>
@@ -202,7 +205,7 @@
   <div id="wiki-backdrop" aria-hidden="true"></div>
 
   <!-- A-Frame Scene (hidden behind input screen until ready) -->
-  <a-scene aria-hidden="true" aria-label="3D spatial audio soundscape" background="transparent: true">
+  <a-scene aria-hidden="true" aria-label="3D spatial audio soundscape">
     <a-assets>
       <audio id="bound-cue" preload="auto" src="./audio/bound.mp3"></audio>
     </a-assets>

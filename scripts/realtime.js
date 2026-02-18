@@ -80,6 +80,7 @@ var autoAdvanceDrifting = false;
 var autoAdvanceTarget = null;
 var driftSpeed = 0.03;       // units per tick (~60 ticks/sec → ~1.8 units/sec)
 var lastUserMoveTime = 0;
+var lastAutoPlayedEl = null;  // prevent re-triggering on the element we just played
 
 // --- Language ---
 var currentLang = "en";
@@ -1001,38 +1002,36 @@ function drawLayout(data) {
     });
   }
 
-  // Archimedean spiral: r = a + b * theta
-  // Spacing between elements along the spiral path
-  var spacing = 4;      // distance between consecutive elements along the spiral
-  var spiralGrowth = 0.6; // how fast the spiral expands (b parameter)
-  var startRadius = 3;    // starting radius from center (a parameter)
-
-  // Place title at center
-  var titleItem = spiralItems[0];
-  var titleEl = createElement(sceneEl, 0, yLevel, 0, titleItem.color, titleItem.type, titleItem.id,
-    titleItem.audioId, true, titleItem.level, titleItem.ariaLabel, titleItem.textLength);
-  titleEl._hierarchyLevel = titleItem.hierarchyLevel;
+  // --- Linear Path Layout ---
+  // Walk forward (-Z) through elements in reading order.
+  // Headers on the left (x=0), paragraphs offset right (x=3),
+  // subsection headers indented (x=2), subsection paragraphs (x=5).
+  var stepZ = 4;            // distance between consecutive elements going forward
+  var currentZ = 0;
 
   // Track min/max for bounds
-  minX = 0; maxX = 0; minZ = 0;
+  minX = -2; maxX = 6; minZ = 0;
   var maxZ = 0;
 
-  // Place remaining items along spiral
-  var theta = 0;
-  for (var si = 1; si < spiralItems.length; si++) {
+  for (var si = 0; si < spiralItems.length; si++) {
     var item = spiralItems[si];
 
-    // Advance theta so arc length ≈ spacing
-    // Arc length ds = sqrt(r² + (dr/dθ)²) dθ ≈ r * dθ for large r
-    var r = startRadius + spiralGrowth * theta;
-    var dTheta = spacing / Math.max(r, 1);
-    theta += dTheta;
-    r = startRadius + spiralGrowth * theta;
+    // Determine X offset based on type/hierarchy
+    var px = 0;
+    if (item.type === "title" || item.type === "intro") {
+      px = 0;
+    } else if (item.hierarchyLevel === "section") {
+      px = 0;    // main section headers on left
+    } else if (item.hierarchyLevel === "subsection") {
+      px = 2;    // subsections indented
+    } else if (item.hierarchyLevel === "paragraph") {
+      px = 3;    // paragraphs offset right
+    }
 
-    var sx = r * Math.cos(theta);
-    var sz = -r * Math.sin(theta); // negative Z = forward in A-Frame
+    var pz = -currentZ; // negative Z = forward
 
-    var el = createElement(sceneEl, sx, yLevel, sz, item.color, item.type === "p" ? "p" : "header",
+    var el = createElement(sceneEl, px, yLevel, pz, item.color,
+      item.type === "p" ? "p" : (item.type === "title" || item.type === "intro" ? item.type : "header"),
       item.id, item.audioId, true, item.level, item.ariaLabel, item.textLength);
     el._hierarchyLevel = item.hierarchyLevel;
     if (item.sectionKey) {
@@ -1041,10 +1040,12 @@ function drawLayout(data) {
     }
 
     // Update bounds
-    if (sx < minX) minX = sx;
-    if (sx > maxX) maxX = sx;
-    if (sz < minZ) minZ = sz;
-    if (sz > maxZ) maxZ = sz;
+    if (px < minX) minX = px;
+    if (px > maxX) maxX = px;
+    if (pz < minZ) minZ = pz;
+    if (pz > maxZ) maxZ = pz;
+
+    currentZ += stepZ;
   }
 
   // Set z0 to max Z for boundary
@@ -1783,6 +1784,8 @@ function onSpeechFinished(el) {
   var timeSinceMove = Date.now() - lastUserMoveTime;
   if (timeSinceMove < 2000) return;
 
+  // Mark this element so collide won't re-trigger on it during drift
+  lastAutoPlayedEl = el;
   currentReadingIndex = idx;
   var nextEl = readingOrder[idx + 1];
   if (!nextEl) return;
@@ -1842,6 +1845,7 @@ function cancelAutoDrift() {
   autoAdvanceDrifting = false;
   autoAdvanceActive = false;
   autoAdvanceTarget = null;
+  lastAutoPlayedEl = null;
 }
 
 // ============================================================
@@ -1906,16 +1910,21 @@ function renderBackdrop(data) {
       var headingText = sec.text;
 
       // Find the matching heading in the backdrop
+      // Modern Wikipedia wraps headings in <div class="mw-heading"><h2>...</h2></div>
       var allHeadings = contentDiv.querySelectorAll("h2, h3, h4");
       for (var i = 0; i < allHeadings.length; i++) {
         var h = allHeadings[i];
-        var hText = h.textContent.replace(/\[edit\]/g, "").trim();
-        if (hText === headingText) {
+        var hText = h.textContent.replace(/\[edit\]/gi, "").replace(/\s+/g, " ").trim();
+        if (hText === headingText || hText.indexOf(headingText) === 0) {
+          // The wrapping element: either the mw-heading div parent or the heading itself
+          var wrapEl = (h.parentNode && h.parentNode.classList &&
+            h.parentNode.classList.contains("mw-heading")) ? h.parentNode : h;
+
           // Wrap heading + its content in a section div
           var sectionDiv = document.createElement("div");
           sectionDiv.id = "backdrop-" + sec._id;
-          h.parentNode.insertBefore(sectionDiv, h);
-          sectionDiv.appendChild(h);
+          wrapEl.parentNode.insertBefore(sectionDiv, wrapEl);
+          sectionDiv.appendChild(wrapEl);
 
           // Collect sibling elements until next same-level heading
           var hLevel = parseInt(h.tagName.charAt(1));
@@ -1923,7 +1932,7 @@ function renderBackdrop(data) {
           while (next) {
             if (next.nodeType === 1) {
               var nextTag = next.tagName;
-              // Check for mw-heading wrapper
+              // Check for mw-heading wrapper div
               if (next.classList && next.classList.contains("mw-heading")) {
                 var innerH = next.querySelector("h2, h3, h4, h5, h6");
                 if (innerH && parseInt(innerH.tagName.charAt(1)) <= hLevel) break;
@@ -1952,14 +1961,18 @@ function renderBackdrop(data) {
         Object.keys(sec.Subsections).forEach(function (subKey) {
           var sub = sec.Subsections[subKey];
           var subText = sub.text;
-          var allH3 = contentDiv.querySelectorAll("h3, h4");
+          // Look inside the parent sectionDiv for subsection headings
+          var allH3 = sectionDiv.querySelectorAll("h3, h4");
           for (var j = 0; j < allH3.length; j++) {
             var sh = allH3[j];
-            var shText = sh.textContent.replace(/\[edit\]/g, "").trim();
-            if (shText === subText) {
-              backdropSectionMap[sub._id] = sh.closest("div[id^='backdrop-']") || sh;
+            var shText = sh.textContent.replace(/\[edit\]/gi, "").replace(/\s+/g, " ").trim();
+            if (shText === subText || shText.indexOf(subText) === 0) {
+              // Use the parent section div for the highlight since subsection is within it
+              var subWrap = (sh.parentNode && sh.parentNode.classList &&
+                sh.parentNode.classList.contains("mw-heading")) ? sh.parentNode : sh;
+              backdropSectionMap[sub._id] = subWrap;
               if (sub.P && sub.P._id) {
-                backdropSectionMap[sub.P._id] = sh.closest("div[id^='backdrop-']") || sh;
+                backdropSectionMap[sub.P._id] = subWrap;
               }
               break;
             }
@@ -1972,33 +1985,7 @@ function renderBackdrop(data) {
   // Show the backdrop
   backdrop.classList.add("visible");
 
-  // Make A-Frame scene transparent
-  var scene = document.querySelector("a-scene");
-  if (scene && scene.canvas) {
-    makeSceneTransparent();
-  } else {
-    document.querySelector("a-scene").addEventListener("loaded", makeSceneTransparent);
-  }
-
   console.log("Backdrop rendered with", Object.keys(backdropSectionMap).length, "section mappings");
-}
-
-function makeSceneTransparent() {
-  var scene = document.querySelector("a-scene");
-  if (!scene) return;
-
-  // Make the A-Frame renderer transparent
-  if (scene.renderer) {
-    scene.renderer.setClearColor(0x000000, 0);
-    scene.renderer.setClearAlpha(0);
-  }
-
-  // Make sky and floor semi-transparent
-  var sky = document.querySelector("a-sky");
-  if (sky) sky.setAttribute("material", "color: #ECECEC; opacity: 0.3; transparent: true");
-
-  var floor = document.querySelector("#floor");
-  if (floor) floor.setAttribute("material", "color: #7BC8A4; opacity: 0.15; transparent: true");
 }
 
 var currentHighlight = null;
@@ -2153,6 +2140,10 @@ AFRAME.registerComponent("collide", {
     tryAutoAnnounce(this.el, dist);
 
     if (collide && dist < proxi) {
+      // Skip re-triggering on the element we just auto-advanced from
+      if (autoAdvanceDrifting && this.el === lastAutoPlayedEl) return;
+      if (this.el === lastAutoPlayedEl && autoAdvanceActive) return;
+
       // Feature 10: Portal spheres just announce — user presses Enter to navigate
       if (this.el._portalLink) {
         collide = false;
