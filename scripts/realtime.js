@@ -72,6 +72,15 @@ var breadcrumbClickBlob = null;
 var portalLinks = [];
 var currentArticleData = null;
 
+// --- Auto-advance: drift to next element when current finishes ---
+var readingOrder = [];       // ordered array of sound elements in reading sequence
+var currentReadingIndex = -1;
+var autoAdvanceActive = false;
+var autoAdvanceDrifting = false;
+var autoAdvanceTarget = null;
+var driftSpeed = 0.03;       // units per tick (~60 ticks/sec → ~1.8 units/sec)
+var lastUserMoveTime = 0;
+
 // --- Language ---
 var currentLang = "en";
 
@@ -635,7 +644,7 @@ function parseWikipediaHTML(pageTitle, html) {
     }
   }
 
-  var introText = truncateText(introTexts.join(" "), 500);
+  var introText = truncateText(introTexts.join(" "), 20000);
   var titleId = sanitizeId("Title_header");
   var introId = sanitizeId("Introduction_paragraph");
 
@@ -694,7 +703,7 @@ function parseWikipediaHTML(pageTitle, html) {
       if (currentH3 && currentH2 && data.Sections[currentH2] &&
           data.Sections[currentH2].Subsections && data.Sections[currentH2].Subsections[currentH3]) {
         var sub = data.Sections[currentH2].Subsections[currentH3];
-        sub.P.text = truncateText((sub.P.text ? sub.P.text + " " : "") + pText, 500);
+        sub.P.text = truncateText((sub.P.text ? sub.P.text + " " : "") + pText, 20000);
         if (!sub.P._id) {
           var pSubId = sanitizeId("Sections_H2_" + data.Sections[currentH2].text + "_Subsections_H3_" + sub.text + "_paragraph");
           sub.P._id = pSubId;
@@ -702,7 +711,7 @@ function parseWikipediaHTML(pageTitle, html) {
         }
       } else if (currentH2 && data.Sections[currentH2]) {
         var sec = data.Sections[currentH2];
-        sec.P.text = truncateText((sec.P.text ? sec.P.text + " " : "") + pText, 500);
+        sec.P.text = truncateText((sec.P.text ? sec.P.text + " " : "") + pText, 20000);
         if (!sec.P._id) {
           var pSecId = sanitizeId("Sections_H2_" + sec.text + "_paragraph");
           sec.P._id = pSecId;
@@ -936,6 +945,7 @@ function buildScene(data) {
   drawLayout(data);
   startSectionAmbients(data);
   createPortals(data);
+  buildReadingOrder(data);
 }
 
 function drawLayout(data) {
@@ -958,7 +968,7 @@ function drawLayout(data) {
   // Feature 5: Dynamic clustering — weight angular spread by content length
   iterateSectionWeighted(x0, 0, z, d1, data.Sections, introEl, "Sections_", 0);
 
-  sounds = document.querySelectorAll("a-sphere");
+  sounds = document.querySelectorAll("a-sphere, a-cylinder");
   console.log("Total spheres created:", sounds.length);
 
   document.querySelector("[camera]").setAttribute("play-proxi", "");
@@ -974,6 +984,12 @@ function drawLayout(data) {
     if (event.code !== "Tab" && event.code !== "Enter" && event.code !== "Escape") {
       collide = true;
     }
+    // Track user movement for auto-advance (arrow keys, WASD)
+    var moveCodes = ["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight", "KeyW", "KeyA", "KeyS", "KeyD"];
+    if (moveCodes.indexOf(event.code) >= 0) {
+      lastUserMoveTime = Date.now();
+      cancelAutoDrift();
+    }
   });
 
   document.querySelector("[camera]").setAttribute("hit-bounds", "");
@@ -988,6 +1004,11 @@ function drawLayout(data) {
       unlockAllAudio();
       document.removeEventListener("touchstart", mobileUnlock);
     }, { once: true });
+    // Cancel auto-drift on any touch (user is navigating manually)
+    document.addEventListener("touchstart", function () {
+      lastUserMoveTime = Date.now();
+      cancelAutoDrift();
+    });
   }
 }
 
@@ -1029,7 +1050,7 @@ function iterateSectionWeighted(x, baseY, z, d, section, parentEl, prename, angl
       var xp = -dp * Math.cos(midAngle);
       var zp = -dp * Math.sin(midAngle);
       var pEl = createElement(headerEl, xp, 0, zp, "#FFFF00", "p", key + i + "_p", sec.P._id, true, "paragraph",
-        t("aria_sphere_paragraph", { name: sec.text }));
+        t("aria_sphere_paragraph", { name: sec.text }), sec.P.text.length);
       pEl._hierarchyLevel = "paragraph";
     }
 
@@ -1066,7 +1087,7 @@ function iterateSection(x, y, z, d, section, parentEl, prename, angle) {
       var xp = -dp * Math.cos(degStep * i + angle);
       var zp = -dp * Math.sin(degStep * i + angle);
       var pEl = createElement(headerEl, xp, y, zp, "#FFFF00", "p", key + i + "_p", sec.P._id, true, "paragraph",
-        t("aria_sphere_paragraph", { name: sec.text }));
+        t("aria_sphere_paragraph", { name: sec.text }), sec.P.text.length);
       pEl._hierarchyLevel = "paragraph";
     }
 
@@ -1076,11 +1097,28 @@ function iterateSection(x, y, z, d, section, parentEl, prename, angle) {
   });
 }
 
-function createElement(parentEl, x, y, z, color, className, id, soundId, autoPlay, beaconLevel, ariaLabel) {
-  var sphereEl = document.createElement("a-sphere");
+function createElement(parentEl, x, y, z, color, className, id, soundId, autoPlay, beaconLevel, ariaLabel, textLength) {
+  // Paragraphs become horizontal cylinders whose length reflects text length
+  var isParagraph = className === "p" && textLength && textLength > 0;
+  var elTag = isParagraph ? "a-cylinder" : "a-sphere";
+  var sphereEl = document.createElement(elTag);
   sphereEl.setAttribute("color", color);
   sphereEl.setAttribute("shader", "flat");
-  sphereEl.setAttribute("radius", "0.5");
+
+  if (isParagraph) {
+    // Scale cylinder length: min 1 unit, max 6 units, based on text length (100-2000 chars)
+    var minLen = 1, maxLen = 6;
+    var clamped = Math.max(100, Math.min(2000, textLength));
+    var cylLength = minLen + (maxLen - minLen) * ((clamped - 100) / (2000 - 100));
+    sphereEl.setAttribute("radius", "0.35");
+    sphereEl.setAttribute("height", String(cylLength.toFixed(2)));
+    // Rotate 90° on Z-axis so the cylinder lies horizontally
+    sphereEl.setAttribute("rotation", "0 0 90");
+    sphereEl._cylLength = cylLength;
+  } else {
+    sphereEl.setAttribute("radius", "0.5");
+  }
+
   sphereEl.setAttribute("position", x + " " + y + " " + z);
   sphereEl.setAttribute("class", className);
   sphereEl.setAttribute("id", id);
@@ -1153,7 +1191,7 @@ function createPortals(data) {
   });
 
   // Update sounds after adding portals
-  sounds = document.querySelectorAll("a-sphere");
+  sounds = document.querySelectorAll("a-sphere, a-cylinder");
 }
 
 // ============================================================
@@ -1545,7 +1583,7 @@ function playSoundOnElement(el) {
       utterance.rate = 1.0;
       utterance.pitch = 1.0;
       utterance.volume = vol;
-      utterance.onend = function () { unmuteBeacon(el); };
+      utterance.onend = function () { unmuteBeacon(el); onSpeechFinished(el); };
       utterance.onerror = function () { unmuteBeacon(el); };
       speechSynthesis.speak(utterance);
     }, 50);
@@ -1687,6 +1725,124 @@ function playAllWithDistanceVolume() {
 }
 
 // ============================================================
+// AUTO-ADVANCE: drift to next element when current finishes
+// ============================================================
+function buildReadingOrder(data) {
+  readingOrder = [];
+  // Title
+  var titleEl = document.getElementById("title");
+  if (titleEl) readingOrder.push(titleEl);
+  // Introduction
+  var introEl = document.getElementById("intro");
+  if (introEl) readingOrder.push(introEl);
+
+  // Helper: add header then its paragraph, then recurse into subsections
+  function addSectionToOrder(section, keyPrefix) {
+    Object.keys(section).forEach(function (key, i) {
+      var sec = section[key];
+      // Header element
+      var headerId = key + i;
+      var headerEl = document.getElementById(headerId);
+      if (headerEl) readingOrder.push(headerEl);
+      // Paragraph element (immediately after its header)
+      var pId = key + i + "_p";
+      var pEl = document.getElementById(pId);
+      if (pEl) readingOrder.push(pEl);
+      // Subsections (depth-first: read subsection content before moving to next sibling)
+      if (sec.Subsections) {
+        addSectionToOrder(sec.Subsections, key + "_Sub_");
+      }
+    });
+  }
+
+  if (data.Sections) {
+    addSectionToOrder(data.Sections, "Sections_");
+  }
+
+  console.log("Reading order built:", readingOrder.length, "elements");
+  readingOrder.forEach(function (el, idx) {
+    console.log("  [" + idx + "]", el.id, el.tagName, el._hierarchyLevel || "");
+  });
+}
+
+function findInReadingOrder(el) {
+  for (var i = 0; i < readingOrder.length; i++) {
+    if (readingOrder[i] === el) return i;
+  }
+  return -1;
+}
+
+function onSpeechFinished(el) {
+  if (playAllActive) return; // don't interfere with play-all mode
+  var idx = findInReadingOrder(el);
+  if (idx < 0 || idx >= readingOrder.length - 1) return;
+
+  // Only auto-advance if user hasn't moved recently (2 seconds)
+  var timeSinceMove = Date.now() - lastUserMoveTime;
+  if (timeSinceMove < 2000) return;
+
+  currentReadingIndex = idx;
+  var nextEl = readingOrder[idx + 1];
+  if (!nextEl) return;
+
+  // Start drifting toward the next element
+  autoAdvanceTarget = nextEl;
+  autoAdvanceDrifting = true;
+  autoAdvanceActive = true;
+
+  // Announce what's next
+  var nextAudioId = getAudioIdFromSound(nextEl);
+  var nextName = headingTextMap[nextAudioId] || "";
+  if (nextName) {
+    var msg = currentLang === "fr" ? "Suivant: " + nextName : "Next: " + nextName;
+    var utt = new SpeechSynthesisUtterance(msg);
+    if (ttsVoice) utt.voice = ttsVoice;
+    utt.lang = currentLang;
+    utt.volume = 0.5;
+    utt.rate = 1.2;
+    speechSynthesis.speak(utt);
+  }
+}
+
+function updateAutoDrift() {
+  if (!autoAdvanceDrifting || !autoAdvanceTarget) return;
+
+  var cam = document.querySelector("[camera]");
+  if (!cam) return;
+
+  var wp = new THREE.Vector3();
+  try {
+    autoAdvanceTarget.getObject3D("mesh").getWorldPosition(wp);
+  } catch (e) { autoAdvanceDrifting = false; return; }
+
+  var cx = cam.object3D.position.x;
+  var cz = cam.object3D.position.z;
+  var dx = wp.x - cx;
+  var dz = wp.z - cz;
+  var dist = Math.sqrt(dx * dx + dz * dz);
+
+  if (dist < proxi) {
+    // Arrived — stop drifting, the collide component will handle playback
+    autoAdvanceDrifting = false;
+    autoAdvanceActive = false;
+    collide = true;
+    return;
+  }
+
+  // Move camera toward target
+  var nx = dx / dist;
+  var nz = dz / dist;
+  cam.object3D.position.x += nx * driftSpeed;
+  cam.object3D.position.z += nz * driftSpeed;
+}
+
+function cancelAutoDrift() {
+  autoAdvanceDrifting = false;
+  autoAdvanceActive = false;
+  autoAdvanceTarget = null;
+}
+
+// ============================================================
 // AUTO-ANNOUNCE
 // ============================================================
 function tryAutoAnnounce(sphereEl, dist) {
@@ -1802,6 +1958,7 @@ AFRAME.registerComponent("footstep-tracker", {
   tick: function () {
     updateFootsteps();
     updateSectionAmbients(); // Feature 2
+    updateAutoDrift(); // Auto-advance drift
   }
 });
 
