@@ -617,6 +617,50 @@ function parseWikipediaHTML(pageTitle, html) {
   var parser = new DOMParser();
   var doc = parser.parseFromString(html, "text/html");
 
+  // Extract image alt-text and captions before removing visual elements
+  var imageDescriptions = [];
+  doc.querySelectorAll(".thumb, figure, .infobox img, .mw-parser-output > img").forEach(function (el) {
+    var img = el.tagName === "IMG" ? el : el.querySelector("img");
+    var caption = el.querySelector(".thumbcaption, figcaption");
+    var alt = img ? (img.getAttribute("alt") || "") : "";
+    var capText = caption ? caption.textContent.trim() : "";
+    var desc = capText || alt;
+    if (desc && desc.length > 5) {
+      imageDescriptions.push("Image: " + desc);
+    }
+  });
+
+  // Extract table data as readable text before removing tables
+  var tableDescriptions = [];
+  doc.querySelectorAll("table:not(.infobox):not(.navbox):not(.sidebar)").forEach(function (tbl) {
+    var caption = tbl.querySelector("caption");
+    var capText = caption ? caption.textContent.trim() : "";
+    // Read header row
+    var headers = [];
+    tbl.querySelectorAll("thead th, tr:first-child th").forEach(function (th) {
+      var t = th.textContent.trim();
+      if (t) headers.push(t);
+    });
+    // Read first few data rows
+    var rows = [];
+    var trs = tbl.querySelectorAll("tbody tr, tr");
+    for (var ri = 0; ri < Math.min(trs.length, 5); ri++) {
+      var cells = [];
+      trs[ri].querySelectorAll("td").forEach(function (td) {
+        var t = td.textContent.trim();
+        if (t) cells.push(t);
+      });
+      if (cells.length > 0) rows.push(cells.join(", "));
+    }
+    if (capText || headers.length > 0 || rows.length > 0) {
+      var desc = "Table";
+      if (capText) desc += ": " + capText + ". ";
+      if (headers.length > 0) desc += "Columns: " + headers.join(", ") + ". ";
+      if (rows.length > 0) desc += "Data: " + rows.join("; ");
+      tableDescriptions.push(truncateText(desc, 2000));
+    }
+  });
+
   doc.querySelectorAll(
     ".mw-editsection, .reference, .reflist, .navbox, .sistersitebox, " +
     ".mw-empty-elt, table, .infobox, .sidebar, .toc, .thumb, " +
@@ -724,6 +768,18 @@ function parseWikipediaHTML(pageTitle, html) {
     }
   }
 
+  // Append image and table descriptions to the introduction
+  if (imageDescriptions.length > 0 || tableDescriptions.length > 0) {
+    var extra = "";
+    if (imageDescriptions.length > 0) {
+      extra += " " + imageDescriptions.join(". ");
+    }
+    if (tableDescriptions.length > 0) {
+      extra += " " + tableDescriptions.join(". ");
+    }
+    data.Introduction.text = truncateText(data.Introduction.text + extra, 20000);
+  }
+
   // Feature 5: Calculate section weights for dynamic clustering
   for (var sk in data.Sections) {
     var secData = data.Sections[sk];
@@ -791,7 +847,8 @@ function collectSectionBlocks(sections, blocks) {
     var sec = sections[key];
     blocks.push({ id: sec._id, text: sec.text, heading: sec.text });
     if (sec.P && sec.P.text && sec.P._id) {
-      blocks.push({ id: sec.P._id, text: sec.P.text, heading: sec.text });
+      // Paragraph uses "Paragraph: <heading>" for auto-announce (not the heading itself)
+      blocks.push({ id: sec.P._id, text: sec.P.text, heading: null });
     }
     if (sec.Subsections) {
       collectSectionBlocks(sec.Subsections, blocks);
@@ -1579,12 +1636,33 @@ function playSoundOnElement(el) {
     var text = ttsTextMap[audioId];
     var vol = getDistanceVolume(el); // Feature 3: distance filtering
 
+    // Voice differentiation by hierarchy level
+    var level = el._hierarchyLevel || "paragraph";
+    var pitch = 1.0;
+    var rate = 1.0;
+    if (level === "title") {
+      pitch = 0.75;  // deep, authoritative
+      rate = 0.85;
+    } else if (level === "intro") {
+      pitch = 0.85;
+      rate = 0.9;
+    } else if (level === "section") {
+      pitch = 1.15;  // slightly higher, distinct from paragraphs
+      rate = 0.95;
+    } else if (level === "subsection") {
+      pitch = 1.3;   // higher still
+      rate = 0.95;
+    } else { // paragraph
+      pitch = 1.0;   // natural
+      rate = 1.0;
+    }
+
     setTimeout(function () {
       var utterance = new SpeechSynthesisUtterance(text);
       if (ttsVoice) utterance.voice = ttsVoice;
       utterance.lang = currentLang;
-      utterance.rate = 1.0;
-      utterance.pitch = 1.0;
+      utterance.rate = rate;
+      utterance.pitch = pitch;
       utterance.volume = vol;
       utterance.onend = function () { unmuteBeacon(el); onSpeechFinished(el); };
       utterance.onerror = function () { unmuteBeacon(el); };
@@ -1790,23 +1868,13 @@ function onSpeechFinished(el) {
   var nextEl = readingOrder[idx + 1];
   if (!nextEl) return;
 
-  // Start drifting toward the next element
+  // Start drifting toward the next element (no announcement — just move)
   autoAdvanceTarget = nextEl;
   autoAdvanceDrifting = true;
   autoAdvanceActive = true;
-
-  // Announce what's next
-  var nextAudioId = getAudioIdFromSound(nextEl);
-  var nextName = headingTextMap[nextAudioId] || "";
-  if (nextName) {
-    var msg = currentLang === "fr" ? "Suivant: " + nextName : "Next: " + nextName;
-    var utt = new SpeechSynthesisUtterance(msg);
-    if (ttsVoice) utt.voice = ttsVoice;
-    utt.lang = currentLang;
-    utt.volume = 0.5;
-    utt.rate = 1.2;
-    speechSynthesis.speak(utt);
-  }
+  // Disable general collision during drift — only the target triggers on arrival
+  collide = false;
+  checkCollide = false;
 }
 
 function updateAutoDrift() {
@@ -1827,10 +1895,20 @@ function updateAutoDrift() {
   var dist = Math.sqrt(dx * dx + dz * dz);
 
   if (dist < proxi) {
-    // Arrived — stop drifting, the collide component will handle playback
+    // Arrived — stop drifting, play the target directly
     autoAdvanceDrifting = false;
     autoAdvanceActive = false;
-    collide = true;
+    lastAutoPlayedEl = null;
+
+    // Play the target element directly instead of relying on collide
+    if (ttsMode === "webspeech") speechSynthesis.cancel();
+    playSoundOnElement(autoAdvanceTarget);
+    sounds.forEach(function (s) {
+      if (s !== autoAdvanceTarget) pauseSoundOnElement(s);
+    });
+    // Set checkCollide so collision resets properly after leaving
+    checkCollide = true;
+    collide = false;
     return;
   }
 
@@ -1846,6 +1924,7 @@ function cancelAutoDrift() {
   autoAdvanceActive = false;
   autoAdvanceTarget = null;
   lastAutoPlayedEl = null;
+  collide = true; // re-enable manual collision
 }
 
 // ============================================================
@@ -2140,10 +2219,6 @@ AFRAME.registerComponent("collide", {
     tryAutoAnnounce(this.el, dist);
 
     if (collide && dist < proxi) {
-      // Skip re-triggering on the element we just auto-advanced from
-      if (autoAdvanceDrifting && this.el === lastAutoPlayedEl) return;
-      if (this.el === lastAutoPlayedEl && autoAdvanceActive) return;
-
       // Feature 10: Portal spheres just announce — user presses Enter to navigate
       if (this.el._portalLink) {
         collide = false;
