@@ -1858,10 +1858,6 @@ function tryAutoAnnounce(sphereEl, dist) {
   lastAnnounceTime = now;
 
   var heading = headingTextMap[audioId];
-  // Feature 8: indicate if already visited
-  if (visitedSpheres[audioId]) {
-    heading = heading + " (" + t("visited") + ")";
-  }
   var utterance = new SpeechSynthesisUtterance(heading);
   if (ttsVoice) utterance.voice = ttsVoice;
   utterance.lang = currentLang;
