@@ -1059,33 +1059,42 @@ function drawLayout(data) {
     });
   }
 
-  // --- Linear Path Layout ---
-  // Walk forward (-Z) through elements in reading order.
-  // Headers on the left (x=0), paragraphs offset right (x=3),
-  // subsection headers indented (x=2), subsection paragraphs (x=5).
-  var stepZ = 4;            // distance between consecutive elements going forward
-  var currentZ = 0;
+  // --- Meandering River Layout ---
+  // Elements follow a sine-wave path going forward (-Z).
+  // The river weaves left and right; paragraphs offset to the
+  // outside of the current curve bend.
+  var stepZ = 4;              // forward distance between elements
+  var amplitude = 6;          // how far the river swings left/right
+  var wavelength = 40;        // Z distance for one full wave cycle
+  var paragraphOffset = 2.5;  // paragraph offset perpendicular to river
 
   // Track min/max for bounds
-  minX = -2; maxX = 6; minZ = 0;
+  minX = 0; maxX = 0; minZ = 0;
   var maxZ = 0;
+  var currentZ = 0;
 
   for (var si = 0; si < spiralItems.length; si++) {
     var item = spiralItems[si];
 
-    // Determine X offset based on type/hierarchy
-    var px = 0;
-    if (item.type === "title" || item.type === "intro") {
-      px = 0;
-    } else if (item.hierarchyLevel === "section") {
-      px = 0;    // main section headers on left
+    var pz = -currentZ; // negative Z = forward
+
+    // River centerline: x = amplitude * sin(2π * z / wavelength)
+    var riverX = amplitude * Math.sin(2 * Math.PI * currentZ / wavelength);
+
+    // Direction of the curve at this point (derivative of sin = cos)
+    var curveSlope = amplitude * (2 * Math.PI / wavelength) * Math.cos(2 * Math.PI * currentZ / wavelength);
+
+    // Determine offset from river center based on element type
+    var offset = 0;
+    if (item.hierarchyLevel === "paragraph") {
+      // Offset paragraph to the outside of the curve
+      offset = curveSlope > 0 ? -paragraphOffset : paragraphOffset;
     } else if (item.hierarchyLevel === "subsection") {
-      px = 2;    // subsections indented
-    } else if (item.hierarchyLevel === "paragraph") {
-      px = 3;    // paragraphs offset right
+      // Subsections slightly offset in the opposite direction
+      offset = curveSlope > 0 ? paragraphOffset * 0.5 : -paragraphOffset * 0.5;
     }
 
-    var pz = -currentZ; // negative Z = forward
+    var px = riverX + offset;
 
     var el = createElement(sceneEl, px, yLevel, pz, item.color,
       item.type === "p" ? "p" : (item.type === "title" || item.type === "intro" ? item.type : "header"),
