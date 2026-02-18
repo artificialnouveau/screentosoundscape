@@ -110,7 +110,7 @@ var i18n = {
     progress_done: "Done!",
     overlay_title: "Screen-to-Soundscape",
     overlay_start: "Click anywhere or press any key to start",
-    overlay_desktop: "Arrow keys: move. Space: play/pause. Shift: nearest sound. Tab: where am I. O: overview tour. Enter: zoom into section. Escape: zoom out.",
+    overlay_desktop: "Arrow keys: move. Double-tap Space: welcome message. Space: play/pause. Shift: nearest sound. Tab: where am I. O: overview tour. Enter: zoom in or load portal. Escape: zoom out.",
     overlay_mobile: "Use on-screen buttons to move, tilt to look around, center button to play/pause",
     aria_sphere_title: "Article title: {name}",
     aria_sphere_intro: "Introduction",
@@ -144,7 +144,7 @@ var i18n = {
     progress_done: "Terminé !",
     overlay_title: "Screen-to-Soundscape",
     overlay_start: "Cliquez n'importe où ou appuyez sur une touche pour commencer",
-    overlay_desktop: "Flèches : se déplacer. Espace : pause. Shift : son le plus proche. Tab : où suis-je. O : visite. Entrée : zoom. Échap : retour.",
+    overlay_desktop: "Flèches : se déplacer. Double espace : message d'accueil. Espace : pause. Shift : son le plus proche. Tab : où suis-je. O : visite. Entrée : zoom ou portail. Échap : retour.",
     overlay_mobile: "Utilisez les boutons à l'écran pour vous déplacer, inclinez pour regarder, bouton central pour pause",
     aria_sphere_title: "Titre de l'article : {name}",
     aria_sphere_intro: "Introduction",
@@ -1509,6 +1509,29 @@ function playBreadcrumbClick() {
 // ============================================================
 // FEATURE 10: PORTAL NAVIGATION
 // ============================================================
+function findNearestPortal() {
+  var cam = document.querySelector("[camera]");
+  if (!cam) return null;
+  var cx = cam.object3D.position.x;
+  var cz = cam.object3D.position.z;
+  var nearest = null;
+  var nearestDist = Infinity;
+
+  document.querySelectorAll("a-sphere.portal").forEach(function (el) {
+    if (!el._portalLink) return;
+    var wp = new THREE.Vector3();
+    try {
+      el.getObject3D("mesh").getWorldPosition(wp);
+      var dist = distance(cx, cz, wp.x, wp.z);
+      if (dist < nearestDist && dist < 5) {
+        nearestDist = dist;
+        nearest = el;
+      }
+    } catch (e) {}
+  });
+  return nearest;
+}
+
 async function activatePortal(portalEl) {
   if (!portalEl._portalLink) return;
   var link = portalEl._portalLink;
@@ -1976,10 +1999,21 @@ AFRAME.registerComponent("collide", {
     tryAutoAnnounce(this.el, dist);
 
     if (collide && dist < proxi) {
-      // Feature 10: Check if this is a portal sphere
+      // Feature 10: Portal spheres just announce — user presses Enter to navigate
       if (this.el._portalLink) {
         collide = false;
-        activatePortal(this.el);
+        // Announce the portal link title via TTS
+        var linkTitle = this.el._portalLink.title;
+        if (ttsMode === "webspeech") speechSynthesis.cancel();
+        setTimeout(function () {
+          var utt = new SpeechSynthesisUtterance(
+            t("aria_sphere_portal", { name: linkTitle }) + ". " +
+            (currentLang === "fr" ? "Appuyez sur Entrée pour charger." : "Press Enter to load.")
+          );
+          if (ttsVoice) utt.voice = ttsVoice;
+          utt.lang = currentLang;
+          speechSynthesis.speak(utt);
+        }, 50);
         return;
       }
 
@@ -2046,10 +2080,10 @@ AFRAME.registerComponent("play-proxi", {
 // ============================================================
 // KEYBOARD HANDLERS
 // ============================================================
-// Double-tap down arrow for welcome
+// Double-tap spacebar for welcome
 document.addEventListener("keydown", function (event) {
   if (welcomePlayed) return;
-  if (event.code === "ArrowDown") {
+  if (event.code === "Space") {
     var now = Date.now();
     if (now - lastUpTime < doubleTapThreshold) {
       welcomePlayed = true;
@@ -2082,12 +2116,18 @@ document.addEventListener("keydown", function (event) {
   }
 });
 
-// Feature 9: Enter = Zoom into section, Escape = Zoom out
+// Feature 9: Enter = Zoom into section or activate portal, Escape = Zoom out
 document.addEventListener("keydown", function (event) {
   if (!started) return;
   if (event.code === "Enter" && !orbitActive) {
     event.preventDefault();
-    enterZoom();
+    // Check if near a portal first
+    var nearPortal = findNearestPortal();
+    if (nearPortal) {
+      activatePortal(nearPortal);
+    } else {
+      enterZoom();
+    }
   }
   if (event.code === "Escape") {
     event.preventDefault();
@@ -2140,15 +2180,6 @@ function addMobileControls() {
     function startMove(e) {
       e.preventDefault();
       unlockAllAudio();
-      if (dir === "backward" && !welcomePlayed) {
-        var now = Date.now();
-        if (now - lastUpTime < doubleTapThreshold) {
-          welcomePlayed = true;
-          var welcome = new Audio("./audio/welcome.mp3");
-          welcome.play().catch(function (err) { console.warn("Welcome audio:", err); });
-        }
-        lastUpTime = now;
-      }
       activeDir = dir;
       collide = true;
       doMove();
@@ -2209,9 +2240,20 @@ function addMobileControls() {
     "background:rgba(255,255,255,0.5);color:#333;pointer-events:auto;" +
     "touch-action:none;user-select:none;-webkit-user-select:none;" +
     "display:flex;align-items:center;justify-content:center;";
+  var pauseTapTime = 0;
   pauseBtn.addEventListener("touchstart", function (e) {
     e.preventDefault();
     unlockAllAudio();
+    // Double-tap pause button = welcome audio (same as double-tap spacebar)
+    if (!welcomePlayed) {
+      var now = Date.now();
+      if (now - pauseTapTime < doubleTapThreshold) {
+        welcomePlayed = true;
+        var welcome = new Audio("./audio/welcome.mp3");
+        welcome.play().catch(function (err) { console.warn("Welcome audio:", err); });
+      }
+      pauseTapTime = now;
+    }
     if (sounds) { checkCollide = false; checkAudio(sounds); }
   }, { passive: false });
   midRow.appendChild(pauseBtn);

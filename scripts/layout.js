@@ -647,7 +647,7 @@ let lastUpTime = 0;
 var doubleTapThreshold = 400; // ms
 document.addEventListener("keydown", function(event) {
   if (welcomePlayed) return;
-  if (event.code === "ArrowUp") {
+  if (event.code === "Space") {
     var now = Date.now();
     if (now - lastUpTime < doubleTapThreshold) {
       welcomePlayed = true;
@@ -715,16 +715,6 @@ function addMobileControls() {
     function startMove(e) {
       e.preventDefault();
       unlockAllAudio();
-      // Double-tap forward to play welcome.mp3 (once)
-      if (dir === "forward" && !welcomePlayed) {
-        var now = Date.now();
-        if (now - lastUpTime < doubleTapThreshold) {
-          welcomePlayed = true;
-          var welcome = new Audio("./audio/welcome.mp3");
-          welcome.play().catch(function(err) { console.warn("Welcome audio:", err); });
-        }
-        lastUpTime = now;
-      }
       activeDir = dir;
       collide = true;
       doMove();
@@ -792,9 +782,20 @@ function addMobileControls() {
     "background:rgba(255,255,255,0.5);color:#333;pointer-events:auto;" +
     "touch-action:none;user-select:none;-webkit-user-select:none;" +
     "display:flex;align-items:center;justify-content:center;";
+  var pauseTapTime = 0;
   pauseBtn.addEventListener("touchstart", function(e) {
     e.preventDefault();
     unlockAllAudio();
+    // Double-tap pause = welcome audio (same as double-tap spacebar)
+    if (!welcomePlayed) {
+      var now = Date.now();
+      if (now - pauseTapTime < doubleTapThreshold) {
+        welcomePlayed = true;
+        var welcome = new Audio("./audio/welcome.mp3");
+        welcome.play().catch(function(err) { console.warn("Welcome audio:", err); });
+      }
+      pauseTapTime = now;
+    }
     if (sounds) { checkCollide = false; checkAudio(sounds); }
   }, { passive: false });
   midRow.appendChild(pauseBtn);
