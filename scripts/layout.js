@@ -53,9 +53,9 @@ function showStartOverlay() {
     started = true;
     overlay.remove();
 
-    // Play welcome audio - create fresh Audio object during gesture for reliability
-    var welcome = new Audio("./audio/welcome.mp3");
-    welcome.play().catch(function(err) { console.warn("Welcome audio:", err); });
+    // Play doubletap instruction audio on start
+    var doubletap = new Audio("./audio/doupletap.mp3");
+    doubletap.play().catch(function(err) { console.warn("Doubletap audio:", err); });
 
     // Resume AudioContext during user gesture (needed for Firefox)
     resumeAudio();
@@ -641,6 +641,23 @@ function distance(x1, z1, x2, z2) {
 document.addEventListener("click", resumeAudio);
 document.addEventListener("keydown", resumeAudio);
 
+//////////////// DOUBLE-TAP UP ARROW FOR WELCOME ////////////////
+let welcomePlayed = false;
+let lastUpTime = 0;
+var doubleTapThreshold = 400; // ms
+document.addEventListener("keydown", function(event) {
+  if (welcomePlayed) return;
+  if (event.code === "ArrowUp") {
+    var now = Date.now();
+    if (now - lastUpTime < doubleTapThreshold) {
+      welcomePlayed = true;
+      var welcome = new Audio("./audio/welcome.mp3");
+      welcome.play().catch(function(err) { console.warn("Welcome audio:", err); });
+    }
+    lastUpTime = now;
+  }
+});
+
 //////////////// MOBILE AUDIO UNLOCK ////////////////
 // Mobile browsers require .play() to be called directly within a user gesture
 // for EACH audio element. This unlocks them for future programmatic playback.
@@ -698,6 +715,16 @@ function addMobileControls() {
     function startMove(e) {
       e.preventDefault();
       unlockAllAudio();
+      // Double-tap forward to play welcome.mp3 (once)
+      if (dir === "forward" && !welcomePlayed) {
+        var now = Date.now();
+        if (now - lastUpTime < doubleTapThreshold) {
+          welcomePlayed = true;
+          var welcome = new Audio("./audio/welcome.mp3");
+          welcome.play().catch(function(err) { console.warn("Welcome audio:", err); });
+        }
+        lastUpTime = now;
+      }
       activeDir = dir;
       collide = true;
       doMove();
