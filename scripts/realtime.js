@@ -597,7 +597,7 @@ function showStartOverlay() {
     started = true;
     overlay.remove();
 
-    var doubletap = new Audio("./audio/doupletap.mp3");
+    var doubletap = new Audio("./audio/doubletap.mp3");
     doubletap.play().catch(function (err) { console.warn("Doubletap audio:", err); });
 
     // Warm up speechSynthesis during user gesture so it's unlocked for later

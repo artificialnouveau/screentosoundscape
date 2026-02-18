@@ -54,7 +54,7 @@ function showStartOverlay() {
     overlay.remove();
 
     // Play doubletap instruction audio on start
-    var doubletap = new Audio("./audio/doupletap.mp3");
+    var doubletap = new Audio("./audio/doubletap.mp3");
     doubletap.play().catch(function(err) { console.warn("Doubletap audio:", err); });
 
     // Resume AudioContext during user gesture (needed for Firefox)
