@@ -10,8 +10,8 @@ const dp = 6;
 let x0 = 0, z = 0, z0 = 0;
 let minX = 0, maxX = 0, minZ = 0;
 const margin = 2;
-const proxi = 2;
-const announceProxi = 5;
+const proxi = 3.5;
+const announceProxi = 6;
 let elCount = 0;
 let checkCollide = false;
 let collide = true;
@@ -22,6 +22,7 @@ let lastUpTime = 0;
 const doubleTapThreshold = 400;
 let audioUnlocked = false;
 let hit = false;
+var summaryPlaying = false;
 
 // --- TTS ---
 let ttsMode = "webspeech";
@@ -68,25 +69,15 @@ var homePos = { x: 0, y: 1.6, z: 0 };
 var visitedSpheres = {};
 var breadcrumbClickBlob = null;
 
-// --- Directional next beacon ---
-var nextBeaconCtx = null;
-var nextBeaconGain = null;
-var nextBeaconPanner = null;
-var nextBeaconInterval = null;
-
-// --- Room acoustics (reverb per section) ---
-var reverbCtx = null;
-var reverbConvolver = null;
-var reverbDry = null;
-var reverbWet = null;
-var currentReverbProfile = null;
-
-// --- Audio landmarks at section boundaries ---
-var landmarkCtx = null;
-var lastLandmarkSection = null;
+// --- Single guide beacon: only the next unvisited element is audible ---
+var guideBeaconEl = null;       // the element whose beacon is currently active
+var guideBeaconBaseVol = 0.5;   // max volume when closest
+var guideBeaconMinVol = 0.08;   // min volume when far away
+var guideBeaconPulsePhase = 0;  // for pulsing effect
 
 // --- Feature 10: Portals ---
 var portalLinks = [];
+var lastAnnouncedPortal = null; // remember last portal announced so Enter works after moving past
 var currentArticleData = null;
 
 // --- Auto-advance: drift to next element when current finishes ---
@@ -132,7 +123,9 @@ var i18n = {
     skip_sections: "See also|References|External links|Notes|Further reading|Bibliography|Sources",
     whereami: "You are near {section}. {left} sections to your left, {right} to your right, {ahead} ahead.",
     visited: "Already visited",
-    portal_loading: "Loading linked article: {name}"
+    portal_loading: "Loading linked article: {name}",
+    summary: "This article has {count} sections. Walk forward to explore. The first sections are: {sections}.",
+    summary_none: "This article has no sections. Walk forward to hear the introduction."
   },
   fr: {
     label_url: "URL ou titre de l'article Wikipédia",
@@ -162,7 +155,9 @@ var i18n = {
     skip_sections: "Voir aussi|Références|Liens externes|Notes|Notes et références|Bibliographie|Sources|Articles connexes",
     whereami: "Vous êtes près de {section}. {left} sections à gauche, {right} à droite, {ahead} devant.",
     visited: "Déjà visité",
-    portal_loading: "Chargement de l'article lié : {name}"
+    portal_loading: "Chargement de l'article lié : {name}",
+    summary: "Cet article comporte {count} sections. Avancez pour explorer. Les premières sections sont : {sections}.",
+    summary_none: "Cet article n'a pas de sections. Avancez pour écouter l'introduction."
   }
 };
 
@@ -266,6 +261,7 @@ async function startGeneration() {
 
     createBeaconTones();
     createBreadcrumbClick();
+    createContentSounds();
     buildScene(data);
     updateProgress(t("progress_done"), 100);
 
@@ -281,18 +277,19 @@ async function startGeneration() {
 }
 
 // ============================================================
-// BEACON TONE GENERATION
+// BEACON TONE GENERATION (Formant Murmur)
 // ============================================================
-var beaconFreqs = {
-  title: 130,
-  section: 220,
-  subsection: 330,
-  paragraph: 440
+// Singing bowl parameters for each hierarchy level
+var formantParams = {
+  title:      { freq: 174, partials: [1, 2.71, 4.58], detune: 0.8 },   // deep, warm
+  section:    { freq: 264, partials: [1, 2.76, 5.04], detune: 1.0 },   // mid, clear
+  subsection: { freq: 396, partials: [1, 2.83, 4.95], detune: 1.2 },   // bright
+  paragraph:  { freq: 480, partials: [1, 2.68, 5.18], detune: 0.6 }    // gentle, high
 };
 
 function createBeaconTones() {
-  for (var level in beaconFreqs) {
-    var blob = generateToneBlob(beaconFreqs[level], 2.0, 0.06);
+  for (var level in formantParams) {
+    var blob = generateFormantMurmurBlob(level);
     var url = URL.createObjectURL(blob);
     var audioEl = document.createElement("audio");
     audioEl.setAttribute("id", "beacon-" + level);
@@ -302,8 +299,9 @@ function createBeaconTones() {
   }
 }
 
-function generateToneBlob(freq, duration, amplitude) {
+function generateFormantMurmurBlob(level) {
   var sampleRate = 22050;
+  var duration = 4.0; // 4 seconds for less obvious looping
   var numSamples = Math.floor(sampleRate * duration);
   var dataLength = numSamples * 2;
   var totalLength = 44 + dataLength;
@@ -324,12 +322,43 @@ function generateToneBlob(freq, duration, amplitude) {
   writeString(view, 36, "data");
   view.setUint32(40, dataLength, true);
 
-  var fadeLen = Math.floor(sampleRate * 0.05);
+  var params = formantParams[level];
+  var baseFreq = params.freq;
+  var partials = params.partials;
+  var detuneHz = params.detune; // Hz of detuning for wobble/beating
+  var amplitude = 0.12;
   var offset = 44;
+
+  // Singing bowl: layered sine pairs with slight detuning (creates beating wobble)
+  // Each partial gets two sines slightly apart in frequency
+  // Amplitude decreases for higher partials
   for (var i = 0; i < numSamples; i++) {
-    var sample = Math.sin(2 * Math.PI * freq * (i / sampleRate)) * amplitude;
-    if (i < fadeLen) sample *= i / fadeLen;
-    if (i > numSamples - fadeLen) sample *= (numSamples - i) / fadeLen;
+    var t = i / sampleRate;
+    var sample = 0;
+
+    for (var p = 0; p < partials.length; p++) {
+      var freq = baseFreq * partials[p];
+      var partialAmp = 1.0 / (p + 1); // higher partials quieter
+      // Two slightly detuned sines create the characteristic bowl wobble
+      var detune = detuneHz * (p + 1) * 0.5;
+      sample += Math.sin(2 * Math.PI * (freq - detune * 0.5) * t) * partialAmp;
+      sample += Math.sin(2 * Math.PI * (freq + detune * 0.5) * t) * partialAmp;
+    }
+
+    // Slow swell: gentle amplitude modulation so it breathes
+    var swell = 0.7 + 0.3 * Math.sin(2 * Math.PI * 0.25 * t);
+    sample = sample * amplitude * swell;
+
+    // Crossfade ends for seamless loop (fade last 0.1s into first 0.1s)
+    var fadeLen = sampleRate * 0.1;
+    if (i > numSamples - fadeLen) {
+      var fadeOut = (numSamples - i) / fadeLen;
+      sample *= fadeOut;
+    } else if (i < fadeLen) {
+      var fadeIn = i / fadeLen;
+      sample *= fadeIn;
+    }
+
     var val = Math.max(-1, Math.min(1, sample));
     view.setInt16(offset, val < 0 ? val * 0x8000 : val * 0x7FFF, true);
     offset += 2;
@@ -386,6 +415,112 @@ function createBreadcrumbClick() {
   audioEl.setAttribute("preload", "auto");
   audioEl.setAttribute("src", url);
   assetEl.appendChild(audioEl);
+}
+
+// ============================================================
+// CONTENT SONIFICATION SOUNDS
+// ============================================================
+function createContentSounds() {
+  // Camera shutter click (~120ms): noise burst → silence → softer noise burst
+  var sampleRate = 22050;
+  var duration = 0.12;
+  var numSamples = Math.floor(sampleRate * duration);
+  var dataLength = numSamples * 2;
+  var totalLength = 44 + dataLength;
+  var buf = new ArrayBuffer(totalLength);
+  var view = new DataView(buf);
+
+  writeString(view, 0, "RIFF");
+  view.setUint32(4, totalLength - 8, true);
+  writeString(view, 8, "WAVE");
+  writeString(view, 12, "fmt ");
+  view.setUint32(16, 16, true);
+  view.setUint16(20, 1, true);
+  view.setUint16(22, 1, true);
+  view.setUint32(24, sampleRate, true);
+  view.setUint32(28, sampleRate * 2, true);
+  view.setUint16(32, 2, true);
+  view.setUint16(34, 16, true);
+  writeString(view, 36, "data");
+  view.setUint32(40, dataLength, true);
+
+  var offset = 44;
+  var clickLen1 = Math.floor(sampleRate * 0.02); // first burst 20ms
+  var gapStart = clickLen1;
+  var gapEnd = Math.floor(sampleRate * 0.06);
+  var clickLen2End = Math.floor(sampleRate * 0.08); // second burst 20ms
+  for (var i = 0; i < numSamples; i++) {
+    var sample = 0;
+    if (i < clickLen1) {
+      var env = Math.exp(-i / (sampleRate * 0.005));
+      sample = (Math.random() * 2 - 1) * 0.3 * env;
+    } else if (i >= gapEnd && i < clickLen2End) {
+      var env2 = Math.exp(-(i - gapEnd) / (sampleRate * 0.008));
+      sample = (Math.random() * 2 - 1) * 0.15 * env2;
+    }
+    var val = Math.max(-1, Math.min(1, sample));
+    view.setInt16(offset, val < 0 ? val * 0x8000 : val * 0x7FFF, true);
+    offset += 2;
+  }
+
+  var shutterBlob = new Blob([buf], { type: "audio/wav" });
+  var shutterUrl = URL.createObjectURL(shutterBlob);
+  var shutterEl = document.createElement("audio");
+  shutterEl.setAttribute("id", "shutter-click");
+  shutterEl.setAttribute("preload", "auto");
+  shutterEl.setAttribute("src", shutterUrl);
+  assetEl.appendChild(shutterEl);
+
+  // Data beep pattern (~800ms): 3 ascending short beeps (880Hz, 1108Hz, 1480Hz)
+  var beepDuration = 0.8;
+  var beepSamples = Math.floor(sampleRate * beepDuration);
+  var beepDataLen = beepSamples * 2;
+  var beepTotalLen = 44 + beepDataLen;
+  var beepBuf = new ArrayBuffer(beepTotalLen);
+  var beepView = new DataView(beepBuf);
+
+  writeString(beepView, 0, "RIFF");
+  beepView.setUint32(4, beepTotalLen - 8, true);
+  writeString(beepView, 8, "WAVE");
+  writeString(beepView, 12, "fmt ");
+  beepView.setUint32(16, 16, true);
+  beepView.setUint16(20, 1, true);
+  beepView.setUint16(22, 1, true);
+  beepView.setUint32(24, sampleRate, true);
+  beepView.setUint32(28, sampleRate * 2, true);
+  beepView.setUint16(32, 2, true);
+  beepView.setUint16(34, 16, true);
+  writeString(beepView, 36, "data");
+  beepView.setUint32(40, beepDataLen, true);
+
+  var beepFreqs = [880, 1108, 1480];
+  var beepLen = Math.floor(sampleRate * 0.1); // each beep 100ms
+  var beepGap = Math.floor(sampleRate * 0.15); // gap between beeps 150ms
+  var beepOffset = 44;
+  for (var j = 0; j < beepSamples; j++) {
+    var sample = 0;
+    for (var b = 0; b < beepFreqs.length; b++) {
+      var bStart = b * (beepLen + beepGap);
+      var bEnd = bStart + beepLen;
+      if (j >= bStart && j < bEnd) {
+        var bT = (j - bStart) / sampleRate;
+        var bEnv = Math.exp(-(j - bStart) / (sampleRate * 0.04));
+        sample = Math.sin(2 * Math.PI * beepFreqs[b] * bT) * 0.2 * bEnv;
+        break;
+      }
+    }
+    var val = Math.max(-1, Math.min(1, sample));
+    beepView.setInt16(beepOffset, val < 0 ? val * 0x8000 : val * 0x7FFF, true);
+    beepOffset += 2;
+  }
+
+  var beepBlob = new Blob([beepBuf], { type: "audio/wav" });
+  var beepUrl = URL.createObjectURL(beepBlob);
+  var beepEl = document.createElement("audio");
+  beepEl.setAttribute("id", "data-beep");
+  beepEl.setAttribute("preload", "auto");
+  beepEl.setAttribute("src", beepUrl);
+  assetEl.appendChild(beepEl);
 }
 
 // ============================================================
@@ -786,17 +921,9 @@ function parseWikipediaHTML(pageTitle, html) {
     }
   }
 
-  // Append image and table descriptions to the introduction
-  if (imageDescriptions.length > 0 || tableDescriptions.length > 0) {
-    var extra = "";
-    if (imageDescriptions.length > 0) {
-      extra += " " + imageDescriptions.join(". ");
-    }
-    if (tableDescriptions.length > 0) {
-      extra += " " + tableDescriptions.join(". ");
-    }
-    data.Introduction.text = truncateText(data.Introduction.text + extra, 20000);
-  }
+  // Store image and table descriptions separately for content sonification
+  data._imageDescriptions = imageDescriptions;
+  data._tableDescriptions = tableDescriptions;
 
   // Feature 5: Calculate section weights for dynamic clustering
   for (var sk in data.Sections) {
@@ -839,7 +966,7 @@ async function generateSpeech(data, elevenLabsKey) {
   var blocks = [];
   blocks.push({ id: data.Title._id, text: data.Title.text, heading: data.Title.text });
   if (data.Introduction.text) {
-    blocks.push({ id: data.Introduction._id, text: data.Introduction.text, heading: "Introduction" });
+    blocks.push({ id: data.Introduction._id, text: data.Introduction.text, heading: null });
   }
   collectSectionBlocks(data.Sections, blocks);
 
@@ -1026,8 +1153,6 @@ function buildScene(data) {
   createPortals(data);
   buildReadingOrder(data);
   renderBackdrop(data);
-  initNextBeacon();
-  initLandmarks();
 }
 
 function drawLayout(data) {
@@ -1040,9 +1165,37 @@ function drawLayout(data) {
     level: "title", ariaLabel: t("aria_sphere_title", { name: data.Title.text }),
     text: data.Title.text, hierarchyLevel: "title" });
 
-  spiralItems.push({ type: "intro", id: "intro", audioId: data.Introduction._id, color: "#EF2D5E",
-    level: "title", ariaLabel: t("aria_sphere_intro"),
-    text: data.Introduction.text, hierarchyLevel: "intro" });
+  if (data.Introduction.text) {
+    spiralItems.push({ type: "p", id: "intro", audioId: data.Introduction._id, color: "#FFFF00",
+      level: "paragraph", ariaLabel: t("aria_sphere_paragraph", { name: data.Title.text }),
+      text: data.Introduction.text, hierarchyLevel: "paragraph", textLength: data.Introduction.text.length });
+  }
+
+  // Image elements (orange diamond boxes) — limit to 3
+  if (data._imageDescriptions) {
+    var imgSlice = data._imageDescriptions.slice(0, 3);
+    imgSlice.forEach(function (desc, idx) {
+      var imgId = sanitizeId("image_" + idx);
+      ttsTextMap[imgId] = desc;
+      addAudioElement(imgId, URL.createObjectURL(createSilentWavBlob()));
+      spiralItems.push({ type: "image", id: "image-" + idx, audioId: imgId, color: "#FF8C00",
+        level: "paragraph", ariaLabel: desc,
+        text: desc, hierarchyLevel: "image", contentType: "image" });
+    });
+  }
+
+  // Table elements (blue flat boxes) — limit to 2
+  if (data._tableDescriptions) {
+    var tblSlice = data._tableDescriptions.slice(0, 2);
+    tblSlice.forEach(function (desc, idx) {
+      var tblId = sanitizeId("table_" + idx);
+      ttsTextMap[tblId] = desc;
+      addAudioElement(tblId, URL.createObjectURL(createSilentWavBlob()));
+      spiralItems.push({ type: "table", id: "table-" + idx, audioId: tblId, color: "#4488FF",
+        level: "paragraph", ariaLabel: desc,
+        text: desc, hierarchyLevel: "table", contentType: "table" });
+    });
+  }
 
   if (data.Sections) {
     Object.keys(data.Sections).forEach(function (key, i) {
@@ -1080,14 +1233,12 @@ function drawLayout(data) {
     });
   }
 
-  // --- Meandering River Layout ---
-  // Elements follow a sine-wave path going forward (-Z).
-  // The river weaves left and right; paragraphs offset to the
-  // outside of the current curve bend.
-  var stepZ = 4;              // forward distance between elements
-  var amplitude = 6;          // how far the river swings left/right
-  var wavelength = 40;        // Z distance for one full wave cycle
-  var paragraphOffset = 2.5;  // paragraph offset perpendicular to river
+  // --- Linear Layout ---
+  // All elements in a straight line going forward (-Z).
+  // Paragraphs offset slightly to the right, subsections slightly left.
+  var stepZ = 5;              // forward distance between elements
+  var paragraphOffset = 2.5;  // paragraph offset to the right
+  var subsectionOffset = -1.5; // subsection offset to the left
 
   // Track min/max for bounds
   minX = 0; maxX = 0; minZ = 0;
@@ -1100,27 +1251,25 @@ function drawLayout(data) {
 
     var pz = -currentZ; // negative Z = forward
 
-    // First element (title) stays centered at x=0, meandering starts after
-    var riverZ = currentZ - startOffset; // river distance starts at 0 for sine wave
-    var riverX = amplitude * Math.sin(2 * Math.PI * riverZ / wavelength);
-
-    // Direction of the curve at this point (derivative of sin = cos)
-    var curveSlope = amplitude * (2 * Math.PI / wavelength) * Math.cos(2 * Math.PI * riverZ / wavelength);
-
-    // Determine offset from river center based on element type
-    var offset = 0;
+    // X position: headers centered, paragraphs to the right, subsections to the left
+    // Images offset right, tables offset left (distinct from text elements)
+    var px = 0;
     if (item.hierarchyLevel === "paragraph") {
-      offset = curveSlope > 0 ? -paragraphOffset : paragraphOffset;
+      px = paragraphOffset;
     } else if (item.hierarchyLevel === "subsection") {
-      offset = curveSlope > 0 ? paragraphOffset * 0.5 : -paragraphOffset * 0.5;
+      px = subsectionOffset;
+    } else if (item.hierarchyLevel === "image") {
+      px = paragraphOffset + 1.5; // further right than paragraphs
+    } else if (item.hierarchyLevel === "table") {
+      px = subsectionOffset - 1.0; // further left than subsections
     }
 
-    var px = riverX + offset;
-
+    var elClass = item.type === "p" ? "p" : (item.type === "title" || item.type === "intro" ? item.type : "header");
+    if (item.contentType) elClass = item.contentType;
     var el = createElement(sceneEl, px, yLevel, pz, item.color,
-      item.type === "p" ? "p" : (item.type === "title" || item.type === "intro" ? item.type : "header"),
-      item.id, item.audioId, true, item.level, item.ariaLabel, item.textLength);
+      elClass, item.id, item.audioId, true, item.level, item.ariaLabel, item.textLength);
     el._hierarchyLevel = item.hierarchyLevel;
+    if (item.contentType) el._contentType = item.contentType;
     if (item.sectionKey) {
       el._sectionKey = item.sectionKey;
       el._sectionData = item.sectionData;
@@ -1140,8 +1289,20 @@ function drawLayout(data) {
 
   createElement(sceneEl, minX - margin, yLevel, z0 + margin, "#F0FFFF", "sound-cues", "bound", "bound-cue", false, null, "Boundary");
 
-  sounds = document.querySelectorAll("a-sphere, a-cylinder");
-  console.log("Total spheres created:", sounds.length);
+  // Resize the floor to match the element layout
+  var floorEl = document.querySelector("#floor");
+  if (floorEl) {
+    var floorW = (maxX - minX) + margin * 4;
+    var floorH = (maxZ - minZ) + margin * 4;
+    var floorCX = (minX + maxX) / 2;
+    var floorCZ = (minZ + maxZ) / 2;
+    floorEl.setAttribute("width", String(Math.max(floorW, 10).toFixed(1)));
+    floorEl.setAttribute("height", String(Math.max(floorH, 10).toFixed(1)));
+    floorEl.setAttribute("position", floorCX.toFixed(1) + " 0 " + floorCZ.toFixed(1));
+  }
+
+  sounds = document.querySelectorAll("a-sphere, a-cylinder, a-box");
+  console.log("Total elements created:", sounds.length);
 
   document.querySelector("[camera]").setAttribute("play-proxi", "");
 
@@ -1189,12 +1350,25 @@ function drawLayout(data) {
 function createElement(parentEl, x, y, z, color, className, id, soundId, autoPlay, beaconLevel, ariaLabel, textLength) {
   // Paragraphs become horizontal cylinders whose length reflects text length
   var isParagraph = className === "p" && textLength && textLength > 0;
-  var elTag = isParagraph ? "a-cylinder" : "a-sphere";
+  var isImage = className === "image";
+  var isTable = className === "table";
+  var elTag = isParagraph ? "a-cylinder" : (isImage || isTable) ? "a-box" : "a-sphere";
   var sphereEl = document.createElement(elTag);
   sphereEl.setAttribute("color", color);
   sphereEl.setAttribute("shader", "flat");
 
-  if (isParagraph) {
+  if (isImage) {
+    // Orange diamond shape (rotated box)
+    sphereEl.setAttribute("width", "0.7");
+    sphereEl.setAttribute("height", "0.7");
+    sphereEl.setAttribute("depth", "0.7");
+    sphereEl.setAttribute("rotation", "0 45 45"); // diamond orientation
+  } else if (isTable) {
+    // Blue flat wide shape
+    sphereEl.setAttribute("width", "1.2");
+    sphereEl.setAttribute("height", "0.3");
+    sphereEl.setAttribute("depth", "0.8");
+  } else if (isParagraph) {
     // Scale cylinder length: min 1 unit, max 6 units, based on text length (100-2000 chars)
     var minLen = 1, maxLen = 6;
     var clamped = Math.max(100, Math.min(2000, textLength));
@@ -1224,11 +1398,11 @@ function createElement(parentEl, x, y, z, color, className, id, soundId, autoPla
       : soundSrc + "; poolSize: 1"
   );
 
-  if (beaconLevel && beaconFreqs[beaconLevel]) {
+  if (beaconLevel && formantParams[beaconLevel]) {
     sphereEl.setAttribute(
       "sound__beacon",
       "src: #beacon-" + beaconLevel +
-      "; autoplay: true; loop: true; volume: 0.3" +
+      "; autoplay: true; loop: true; volume: 0.2" +
       "; distanceModel: exponential; refDistance: 2; rolloffFactor: 4; poolSize: 1"
     );
   }
@@ -1280,7 +1454,7 @@ function createPortals(data) {
   });
 
   // Update sounds after adding portals
-  sounds = document.querySelectorAll("a-sphere, a-cylinder");
+  sounds = document.querySelectorAll("a-sphere, a-cylinder, a-box");
 }
 
 // ============================================================
@@ -1297,7 +1471,7 @@ function speakWhereAmI() {
   var nearestDist = Infinity;
   var leftCount = 0, rightCount = 0, aheadCount = 0;
 
-  document.querySelectorAll("a-sphere.header, a-sphere.title, a-sphere.intro").forEach(function (el) {
+  document.querySelectorAll("a-sphere.header, a-sphere.title").forEach(function (el) {
     var wp = new THREE.Vector3();
     try {
       el.getObject3D("mesh").getWorldPosition(wp);
@@ -1351,6 +1525,9 @@ function markVisited(sphereEl) {
 
   visitedSpheres[audioId] = true;
 
+  // Immediately pause beacon on visited element
+  muteBeacon(sphereEl);
+
   // Change color to a dimmer version to show it's been visited
   var origColor = sphereEl._originalColor || "#00FFFF";
   // Shift toward grey
@@ -1402,7 +1579,7 @@ function findNearestPortal() {
     try {
       el.getObject3D("mesh").getWorldPosition(wp);
       var dist = distance(cx, cz, wp.x, wp.z);
-      if (dist < nearestDist && dist < 5) {
+      if (dist < nearestDist && dist < 10) {
         nearestDist = dist;
         nearest = el;
       }
@@ -1470,6 +1647,7 @@ async function activatePortal(portalEl) {
     // Rebuild scene
     createBeaconTones();
     createBreadcrumbClick();
+    createContentSounds();
     buildScene(data);
 
     overlay.remove();
@@ -1483,8 +1661,8 @@ async function activatePortal(portalEl) {
 }
 
 function clearScene() {
-  // Remove all spheres
-  document.querySelectorAll("a-sphere").forEach(function (el) { el.remove(); });
+  // Remove all scene elements (spheres, cylinders, boxes)
+  document.querySelectorAll("a-sphere, a-cylinder, a-box").forEach(function (el) { el.remove(); });
 
   // Clear audio assets (except bound-cue)
   var assets = document.querySelector("a-assets");
@@ -1500,6 +1678,12 @@ function clearScene() {
   sectionWeights = {};
   sectionAmbients = {};
   portalLinks = [];
+  lastAnnouncedPortal = null;
+  guideBeaconEl = null;
+  guideBeaconPulsePhase = 0;
+  summaryPlaying = false;
+  readingOrder = [];
+  currentReadingIndex = -1;
   elCount = 0;
   minX = 0; maxX = 0; minZ = 0;
   ttsTotal = 0;
@@ -1514,6 +1698,38 @@ function clearScene() {
 // ============================================================
 // START OVERLAY
 // ============================================================
+function speakSpatialSummary(onDone) {
+  summaryPlaying = true;
+  var sectionNames = [];
+  if (currentArticleData && currentArticleData.Sections) {
+    Object.keys(currentArticleData.Sections).forEach(function (key) {
+      sectionNames.push(currentArticleData.Sections[key].text);
+    });
+  }
+
+  var text;
+  if (sectionNames.length === 0) {
+    text = t("summary_none");
+  } else {
+    var first = sectionNames.slice(0, 4).join(", ");
+    text = t("summary", { count: sectionNames.length, sections: first });
+  }
+
+  var utterance = new SpeechSynthesisUtterance(text);
+  if (ttsVoice) utterance.voice = ttsVoice;
+  utterance.lang = currentLang;
+  utterance.rate = 1.0;
+  utterance.onend = function () {
+    summaryPlaying = false;
+    if (onDone) onDone();
+  };
+  utterance.onerror = function () {
+    summaryPlaying = false;
+    if (onDone) onDone();
+  };
+  speechSynthesis.speak(utterance);
+}
+
 function showStartOverlay() {
   var overlay = document.createElement("div");
   overlay.id = "start-overlay";
@@ -1534,6 +1750,8 @@ function showStartOverlay() {
   function startApp() {
     if (started) return;
     started = true;
+    summaryPlaying = true; // Gate collisions and beacons until summary finishes
+    collide = false;
     overlay.remove();
 
     var doubletap = new Audio("./audio/doubletap.mp3");
@@ -1556,6 +1774,21 @@ function showStartOverlay() {
     startAmbient();
     initFootsteps();
     resumeAudio();
+
+    // After doubletap finishes (~2s), speak spatial summary, then enable beacons and collisions
+    doubletap.addEventListener("ended", function () {
+      speakSpatialSummary(function () {
+        collide = true;
+      });
+    });
+    // Fallback if doubletap fails to fire ended
+    setTimeout(function () {
+      if (summaryPlaying && !speechSynthesis.speaking) {
+        speakSpatialSummary(function () {
+          collide = true;
+        });
+      }
+    }, 3000);
   }
 
   overlay.addEventListener("click", startApp, { once: true });
@@ -1655,19 +1888,35 @@ function getDistanceVolume(sphereEl) {
   }
 }
 
+function addListPauses(text) {
+  // Reformat numbered lists ("1. thing 2. thing") into "Item 1: thing. Item 2: thing."
+  // so TTS adds natural pauses between items
+  return text.replace(/(\d+)\.\s+/g, "Item $1: ").replace(/Item (\d+):/g, function (match, num) {
+    return (parseInt(num) > 1 ? ". " : "") + "Item " + num + ":";
+  });
+}
+
 function playSoundOnElement(el) {
   var audioId = getAudioIdFromSound(el);
 
-  muteBeacon(el);
+  muteAllBeacons(); // Mute all beacons during speech
   markVisited(el); // Feature 8: breadcrumb
   highlightBackdropSection(audioId); // Highlight corresponding section on the backdrop
 
-  // Audio landmark — play transition sound when entering a new section
-  if (el._sectionKey) checkLandmarkTransition(el._sectionKey);
-
   if (audioId && ttsTextMap[audioId]) {
-    var text = ttsTextMap[audioId];
+    var text = addListPauses(ttsTextMap[audioId]);
     var vol = getDistanceVolume(el); // Feature 3: distance filtering
+    var contentType = el._contentType;
+
+    // Content sonification: play effect sound before TTS
+    var preDelay = 50;
+    if (contentType === "image") {
+      playContentEffect("shutter-click");
+      preDelay = 300; // 250ms after shutter click
+    } else if (contentType === "table") {
+      playContentEffect("data-beep");
+      preDelay = 950; // 900ms after data beep starts
+    }
 
     setTimeout(function () {
       var utterance = new SpeechSynthesisUtterance(text);
@@ -1676,10 +1925,10 @@ function playSoundOnElement(el) {
       utterance.rate = 1.0;
       utterance.pitch = 1.0;
       utterance.volume = vol;
-      utterance.onend = function () { unmuteBeacon(el); onSpeechFinished(el); };
-      utterance.onerror = function () { unmuteBeacon(el); };
+      utterance.onend = function () { restoreBeacons(); onSpeechFinished(el); };
+      utterance.onerror = function () { restoreBeacons(); };
       speechSynthesis.speak(utterance);
-    }, 50);
+    }, preDelay);
     return;
   }
 
@@ -1692,6 +1941,17 @@ function playSoundOnElement(el) {
       audioEl.play().catch(function () {});
     }
   }
+}
+
+function playContentEffect(id) {
+  try {
+    var el = document.getElementById(id);
+    if (el) {
+      el.currentTime = 0;
+      el.volume = 0.4;
+      el.play().catch(function () {});
+    }
+  } catch (e) {}
 }
 
 function pauseSoundOnElement(el) {
@@ -1735,6 +1995,21 @@ function unmuteBeacon(el) {
     var beaconComp = el.components && el.components.sound__beacon;
     if (beaconComp) beaconComp.playSound();
   } catch (e) {}
+}
+
+// Mute all beacons (called before speech starts)
+function muteAllBeacons() {
+  if (!sounds) return;
+  sounds.forEach(function (s) {
+    try {
+      s.setAttribute("sound__beacon", "volume", "0");
+    } catch (e) {}
+  });
+}
+
+// Restore beacon volumes after speech ends
+function restoreBeacons() {
+  // Beacons will be restored by updateBeacons on next tick
 }
 
 function checkAudio(audioArray) {
@@ -1828,6 +2103,24 @@ function buildReadingOrder(data) {
   // Introduction
   var introEl = document.getElementById("intro");
   if (introEl) readingOrder.push(introEl);
+
+  // Image elements (after intro) — matches the cap in drawLayout
+  if (data._imageDescriptions) {
+    var imgCount = Math.min(data._imageDescriptions.length, 3);
+    for (var ii = 0; ii < imgCount; ii++) {
+      var imgEl = document.getElementById("image-" + ii);
+      if (imgEl) readingOrder.push(imgEl);
+    }
+  }
+
+  // Table elements (after images) — matches the cap in drawLayout
+  if (data._tableDescriptions) {
+    var tblCount = Math.min(data._tableDescriptions.length, 2);
+    for (var ti = 0; ti < tblCount; ti++) {
+      var tblEl = document.getElementById("table-" + ti);
+      if (tblEl) readingOrder.push(tblEl);
+    }
+  }
 
   // Helper: add header then its paragraph, then recurse into subsections
   function addSectionToOrder(section, keyPrefix) {
@@ -2024,6 +2317,8 @@ function renderBackdrop(data) {
           // Collect sibling elements until next same-level heading
           var hLevel = parseInt(h.tagName.charAt(1));
           var next = sectionDiv.nextSibling;
+          // Collect paragraph nodes separately for precise paragraph highlighting
+          var paragraphNodes = [];
           while (next) {
             if (next.nodeType === 1) {
               var nextTag = next.tagName;
@@ -2034,40 +2329,63 @@ function renderBackdrop(data) {
               }
               if ((nextTag === "H2" || nextTag === "H3" || nextTag === "H4") &&
                   parseInt(nextTag.charAt(1)) <= hLevel) break;
+              if (nextTag === "P") paragraphNodes.push(next);
             }
             var toMove = next;
             next = next.nextSibling;
             sectionDiv.appendChild(toMove);
           }
 
-          // Map header sphere
-          backdropSectionMap[sec._id] = sectionDiv;
+          // Map header sphere → just the heading element
+          backdropSectionMap[sec._id] = wrapEl;
 
-          // Map paragraph sphere to same section
-          if (sec.P && sec.P._id) {
+          // Map paragraph sphere → a wrapper around the paragraph text nodes
+          if (sec.P && sec.P._id && paragraphNodes.length > 0) {
+            var pWrapper = document.createElement("div");
+            pWrapper.id = "backdrop-p-" + sec._id;
+            paragraphNodes[0].parentNode.insertBefore(pWrapper, paragraphNodes[0]);
+            paragraphNodes.forEach(function (pn) { pWrapper.appendChild(pn); });
+            backdropSectionMap[sec.P._id] = pWrapper;
+          } else if (sec.P && sec.P._id) {
             backdropSectionMap[sec.P._id] = sectionDiv;
           }
           break;
         }
       }
 
-      // Also map subsections
+      // Also map subsections — heading maps to heading, paragraph maps to paragraphs
       if (sec.Subsections) {
         Object.keys(sec.Subsections).forEach(function (subKey) {
           var sub = sec.Subsections[subKey];
           var subText = sub.text;
-          // Look inside the parent sectionDiv for subsection headings
           var allH3 = sectionDiv.querySelectorAll("h3, h4");
           for (var j = 0; j < allH3.length; j++) {
             var sh = allH3[j];
             var shText = sh.textContent.replace(/\[edit\]/gi, "").replace(/\s+/g, " ").trim();
             if (shText === subText || shText.indexOf(subText) === 0) {
-              // Use the parent section div for the highlight since subsection is within it
               var subWrap = (sh.parentNode && sh.parentNode.classList &&
                 sh.parentNode.classList.contains("mw-heading")) ? sh.parentNode : sh;
+              // Header → heading element
               backdropSectionMap[sub._id] = subWrap;
+              // Paragraph → collect <p> siblings after the heading until next heading
               if (sub.P && sub.P._id) {
-                backdropSectionMap[sub.P._id] = subWrap;
+                var subParas = [];
+                var sibling = subWrap.nextElementSibling;
+                while (sibling) {
+                  if (sibling.tagName === "H3" || sibling.tagName === "H4" || sibling.tagName === "H2" ||
+                      (sibling.classList && sibling.classList.contains("mw-heading"))) break;
+                  if (sibling.tagName === "P") subParas.push(sibling);
+                  sibling = sibling.nextElementSibling;
+                }
+                if (subParas.length > 0) {
+                  var subPWrapper = document.createElement("div");
+                  subPWrapper.id = "backdrop-p-" + sub._id;
+                  subParas[0].parentNode.insertBefore(subPWrapper, subParas[0]);
+                  subParas.forEach(function (sp) { subPWrapper.appendChild(sp); });
+                  backdropSectionMap[sub.P._id] = subPWrapper;
+                } else {
+                  backdropSectionMap[sub.P._id] = subWrap;
+                }
               }
               break;
             }
@@ -2105,161 +2423,71 @@ function highlightBackdropSection(audioId) {
 }
 
 // ============================================================
-// DIRECTIONAL NEXT BEACON
-// A subtle tick from the direction of the next unvisited element
+// BEACON SYSTEM — ALL BEACONS ACTIVE (Formant Murmur)
+// All unvisited elements murmur from their 3D positions.
+// The guide element (next in reading order) pulses louder.
+// Visited elements go silent. During speech, all mute.
 // ============================================================
-function initNextBeacon() {
-  try {
-    nextBeaconCtx = new (window.AudioContext || window.webkitAudioContext)();
-    nextBeaconGain = nextBeaconCtx.createGain();
-    nextBeaconGain.gain.value = 0.08;
-    nextBeaconPanner = nextBeaconCtx.createPanner();
-    nextBeaconPanner.panningModel = "HRTF";
-    nextBeaconPanner.distanceModel = "inverse";
-    nextBeaconPanner.refDistance = 1;
-    nextBeaconPanner.maxDistance = 100;
-    nextBeaconPanner.rolloffFactor = 1;
-    nextBeaconPanner.connect(nextBeaconGain);
-    nextBeaconGain.connect(nextBeaconCtx.destination);
+function updateBeacons() {
+  if (!sounds || !started || readingOrder.length === 0) return;
+  if (summaryPlaying) return; // Don't start beacons during spatial summary
 
-    nextBeaconInterval = setInterval(playNextBeaconTick, 2000);
-  } catch (e) { console.warn("Next beacon init failed:", e); }
-}
-
-function playNextBeaconTick() {
-  if (!nextBeaconCtx || !sounds || !started) return;
-  if (speechSynthesis.speaking) return; // don't tick while speech is playing
+  // During speech: keep all beacons silent
+  if (speechSynthesis.speaking) {
+    sounds.forEach(function (s) {
+      try { s.setAttribute("sound__beacon", "volume", "0"); } catch (e) {}
+    });
+    return;
+  }
 
   var cam = document.querySelector("[camera]");
   if (!cam) return;
   var cx = cam.object3D.position.x;
   var cz = cam.object3D.position.z;
 
-  // Find nearest unvisited element
-  var nearest = null;
-  var nearDist = Infinity;
-  var wp = new THREE.Vector3();
+  // Find the guide element (next unvisited in reading order)
+  var guideEl = null;
   for (var i = 0; i < readingOrder.length; i++) {
     var el = readingOrder[i];
     var aid = getAudioIdFromSound(el);
-    if (visitedSpheres[aid]) continue;
-    try {
-      el.getObject3D("mesh").getWorldPosition(wp);
-      var d = distance(cx, cz, wp.x, wp.z);
-      if (d < nearDist) { nearDist = d; nearest = { x: wp.x, z: wp.z }; }
-    } catch (e) {}
+    if (!visitedSpheres[aid]) { guideEl = el; break; }
   }
 
-  if (!nearest || nearDist < proxi) return; // already there or nothing left
-
-  // Position the panner in the direction of the next element
-  var dx = nearest.x - cx;
-  var dz = nearest.z - cz;
-  var len = Math.sqrt(dx * dx + dz * dz);
-  nextBeaconPanner.positionX.setValueAtTime(dx / len * 5, nextBeaconCtx.currentTime);
-  nextBeaconPanner.positionY.setValueAtTime(0, nextBeaconCtx.currentTime);
-  nextBeaconPanner.positionZ.setValueAtTime(dz / len * 5, nextBeaconCtx.currentTime);
-
-  // Short tick sound
-  var osc = nextBeaconCtx.createOscillator();
-  osc.type = "sine";
-  osc.frequency.value = 800;
-  var tickGain = nextBeaconCtx.createGain();
-  tickGain.gain.setValueAtTime(0.15, nextBeaconCtx.currentTime);
-  tickGain.gain.exponentialRampToValueAtTime(0.001, nextBeaconCtx.currentTime + 0.08);
-  osc.connect(tickGain);
-  tickGain.connect(nextBeaconPanner);
-  osc.start(nextBeaconCtx.currentTime);
-  osc.stop(nextBeaconCtx.currentTime + 0.08);
-}
-
-// ============================================================
-// AUDIO LANDMARKS at section boundaries
-// Distinct sounds when entering a new major section area
-// ============================================================
-function initLandmarks() {
-  try {
-    landmarkCtx = new (window.AudioContext || window.webkitAudioContext)();
-  } catch (e) { console.warn("Landmark audio init failed:", e); }
-}
-
-function checkLandmarkTransition(sectionKey) {
-  if (!landmarkCtx || !sectionKey || sectionKey === lastLandmarkSection) return;
-  lastLandmarkSection = sectionKey;
-
-  // Pick a landmark sound based on section index
-  var keys = Object.keys(currentArticleData ? currentArticleData.Sections || {} : {});
-  var idx = keys.indexOf(sectionKey);
-  if (idx < 0) idx = 0;
-
-  var soundType = idx % 3; // cycle through water drop, chime, wind
-  var t = landmarkCtx.currentTime;
-
-  if (soundType === 0) {
-    // Water drop — descending pitch
-    var osc = landmarkCtx.createOscillator();
-    osc.type = "sine";
-    osc.frequency.setValueAtTime(1200, t);
-    osc.frequency.exponentialRampToValueAtTime(200, t + 0.15);
-    var g = landmarkCtx.createGain();
-    g.gain.setValueAtTime(0.2, t);
-    g.gain.exponentialRampToValueAtTime(0.001, t + 0.3);
-    osc.connect(g); g.connect(landmarkCtx.destination);
-    osc.start(t); osc.stop(t + 0.3);
-  } else if (soundType === 1) {
-    // Soft chime — two harmonics
-    [523, 659].forEach(function (freq, fi) {
-      var osc = landmarkCtx.createOscillator();
-      osc.type = "sine";
-      osc.frequency.value = freq;
-      var g = landmarkCtx.createGain();
-      g.gain.setValueAtTime(0.15, t + fi * 0.1);
-      g.gain.exponentialRampToValueAtTime(0.001, t + fi * 0.1 + 0.4);
-      osc.connect(g); g.connect(landmarkCtx.destination);
-      osc.start(t + fi * 0.1); osc.stop(t + fi * 0.1 + 0.4);
-    });
-  } else {
-    // Wind gust — filtered noise
-    var bufSize = landmarkCtx.sampleRate * 0.5;
-    var buf = landmarkCtx.createBuffer(1, bufSize, landmarkCtx.sampleRate);
-    var data = buf.getChannelData(0);
-    for (var i = 0; i < bufSize; i++) data[i] = (Math.random() * 2 - 1) * 0.3;
-    var src = landmarkCtx.createBufferSource();
-    src.buffer = buf;
-    var filt = landmarkCtx.createBiquadFilter();
-    filt.type = "bandpass";
-    filt.frequency.value = 400;
-    filt.Q.value = 2;
-    var g = landmarkCtx.createGain();
-    g.gain.setValueAtTime(0, t);
-    g.gain.linearRampToValueAtTime(0.12, t + 0.1);
-    g.gain.linearRampToValueAtTime(0, t + 0.5);
-    src.connect(filt); filt.connect(g); g.connect(landmarkCtx.destination);
-    src.start(t); src.stop(t + 0.5);
+  // If guide target changed, update the tracked element
+  if (guideBeaconEl !== guideEl) {
+    guideBeaconEl = guideEl;
+    guideBeaconPulsePhase = 0;
   }
-}
 
-// ============================================================
-// BEHIND = VISITED — dim beacons on visited elements
-// ============================================================
-function updateVisitedBeaconVolumes() {
-  if (!sounds) return;
-  var cam = document.querySelector("[camera]");
-  if (!cam) return;
-  var cx = cam.object3D.position.x;
-  var cz = cam.object3D.position.z;
-
+  // Update all elements
   sounds.forEach(function (s) {
-    var audioId = getAudioIdFromSound(s);
     var beaconComp = s.components && s.components.sound__beacon;
     if (!beaconComp) return;
 
+    var audioId = getAudioIdFromSound(s);
+
+    // Visited elements: silent and paused
     if (visitedSpheres[audioId]) {
-      // Visited: quieter beacon
-      try { beaconComp.el.setAttribute("sound__beacon", "volume", 0.05); } catch (e) {}
+      try {
+        s.setAttribute("sound__beacon", "volume", "0");
+        beaconComp.pauseSound();
+      } catch (e) {}
+      return;
+    }
+
+    // Ensure beacon is playing
+    try { beaconComp.playSound(); } catch (e) {}
+
+    if (s === guideEl) {
+      // Guide element: volume 0.5 with pulse modulation
+      guideBeaconPulsePhase += 1.5 / 60; // ~1.5 Hz pulse
+      if (guideBeaconPulsePhase > 1) guideBeaconPulsePhase -= 1;
+      var pulse = 0.5 + 0.5 * Math.sin(guideBeaconPulsePhase * 2 * Math.PI);
+      var guideVol = 0.3 + 0.2 * pulse; // oscillates between 0.3 and 0.5
+      try { s.setAttribute("sound__beacon", "volume", String(guideVol.toFixed(3))); } catch (e) {}
     } else {
-      // Unvisited: normal beacon volume
-      try { beaconComp.el.setAttribute("sound__beacon", "volume", 0.3); } catch (e) {}
+      // All other unvisited: volume 0.2 (spatial audio handles distance naturally)
+      try { s.setAttribute("sound__beacon", "volume", "0.2"); } catch (e) {}
     }
   });
 }
@@ -2269,8 +2497,12 @@ function updateVisitedBeaconVolumes() {
 // ============================================================
 function tryAutoAnnounce(sphereEl, dist) {
   if (dist > announceProxi || dist < proxi) return;
+  // Don't announce during auto-drift (prevents re-announcing elements we pass)
+  if (autoAdvanceDrifting) return;
   var audioId = getAudioIdFromSound(sphereEl);
   if (!audioId || !headingTextMap[audioId]) return;
+  // Don't announce already-visited elements
+  if (visitedSpheres[audioId]) return;
 
   var now = Date.now();
   if (audioId === lastAnnouncedId && now - lastAnnounceTime < announceCooldown) return;
@@ -2379,12 +2611,7 @@ AFRAME.registerComponent("footstep-tracker", {
     updateFootsteps();
     updateSectionAmbients(); // Feature 2
     updateAutoDrift(); // Auto-advance drift
-    // Update visited beacon volumes every ~60 ticks (once per second)
-    this._visitedCheckCounter = (this._visitedCheckCounter || 0) + 1;
-    if (this._visitedCheckCounter >= 60) {
-      this._visitedCheckCounter = 0;
-      updateVisitedBeaconVolumes();
-    }
+    updateBeacons(); // All beacons active — formant murmur system
   }
 });
 
@@ -2393,6 +2620,7 @@ AFRAME.registerComponent("collide", {
     this.worldpos = new THREE.Vector3();
   },
   tick: function () {
+    if (summaryPlaying) return; // Don't collide during spatial summary
     var cameraEl = document.querySelector("[camera]");
     var camX = cameraEl.object3D.position.x;
     var camZ = cameraEl.object3D.position.z;
@@ -2405,6 +2633,7 @@ AFRAME.registerComponent("collide", {
       // Feature 10: Portal spheres just announce — user presses Enter to navigate
       if (this.el._portalLink) {
         collide = false;
+        lastAnnouncedPortal = this.el; // remember so Enter works even after moving away
         // Announce the portal link title via TTS
         var linkTitle = this.el._portalLink.title;
         if (ttsMode === "webspeech") speechSynthesis.cancel();
@@ -2508,14 +2737,19 @@ document.addEventListener("keydown", function (event) {
   }
 });
 
-// Enter = activate nearby portal
+// Enter = activate nearby portal (or the last announced one if you moved past)
 document.addEventListener("keydown", function (event) {
   if (!started) return;
   if (event.code === "Enter") {
     event.preventDefault();
     var nearPortal = findNearestPortal();
     if (nearPortal) {
+      lastAnnouncedPortal = null;
       activatePortal(nearPortal);
+    } else if (lastAnnouncedPortal && lastAnnouncedPortal._portalLink) {
+      var p = lastAnnouncedPortal;
+      lastAnnouncedPortal = null;
+      activatePortal(p);
     }
   }
 });
