@@ -113,7 +113,7 @@ var i18n = {
     overlay_title: "Screen-to-Soundscape",
     overlay_start: "Click anywhere or press any key to start",
     overlay_desktop: "Arrow keys: move. Space: play/pause. Double-tap Space: welcome. Shift: nearest sound. Tab: where am I. P: play all by distance. Enter: load portal. Escape: return to start.",
-    overlay_mobile: "Use on-screen buttons to move, tilt to look around, center button to play/pause",
+    overlay_mobile: "Swipe to move: up/down for forward/back, left/right to strafe. Tap to play nearest audio. Double-tap for instructions.",
     aria_sphere_title: "Article title: {name}",
     aria_sphere_intro: "Introduction",
     aria_sphere_section: "Section: {name}",
@@ -145,7 +145,7 @@ var i18n = {
     overlay_title: "Screen-to-Soundscape",
     overlay_start: "Cliquez n'importe où ou appuyez sur une touche pour commencer",
     overlay_desktop: "Flèches : se déplacer. Espace : pause. Double espace : accueil. Shift : son le plus proche. Tab : où suis-je. P : tout lire. Entrée : portail. Échap : retour au départ.",
-    overlay_mobile: "Utilisez les boutons à l'écran pour vous déplacer, inclinez pour regarder, bouton central pour pause",
+    overlay_mobile: "Glissez pour naviguer : haut/bas pour avancer/reculer, gauche/droite pour se décaler. Tapez pour lire l'audio le plus proche. Double-tap pour les instructions.",
     aria_sphere_title: "Titre de l'article : {name}",
     aria_sphere_intro: "Introduction",
     aria_sphere_section: "Section : {name}",
@@ -1302,7 +1302,8 @@ function drawLayout(data) {
   }
 
   sounds = document.querySelectorAll("a-sphere, a-cylinder, a-box");
-  console.log("Total elements created:", sounds.length);
+  var paragraphCount = spiralItems.filter(function (it) { return it.type === "p"; }).length;
+  console.log("drawLayout: spiralItems=" + spiralItems.length + ", paragraphs=" + paragraphCount + ", total elements=" + sounds.length + ", mobile=" + isMobile());
 
   document.querySelector("[camera]").setAttribute("play-proxi", "");
 
@@ -1352,7 +1353,9 @@ function createElement(parentEl, x, y, z, color, className, id, soundId, autoPla
   var isParagraph = className === "p" && textLength && textLength > 0;
   var isImage = className === "image";
   var isTable = className === "table";
-  var elTag = isParagraph ? "a-cylinder" : (isImage || isTable) ? "a-box" : "a-sphere";
+  // On mobile, use a-box for paragraphs instead of a-cylinder (more reliable across mobile GPUs)
+  var useMobileBox = isParagraph && isMobile();
+  var elTag = useMobileBox ? "a-box" : isParagraph ? "a-cylinder" : (isImage || isTable) ? "a-box" : "a-sphere";
   var sphereEl = document.createElement(elTag);
   sphereEl.setAttribute("color", color);
   sphereEl.setAttribute("shader", "flat");
@@ -1369,14 +1372,21 @@ function createElement(parentEl, x, y, z, color, className, id, soundId, autoPla
     sphereEl.setAttribute("height", "0.3");
     sphereEl.setAttribute("depth", "0.8");
   } else if (isParagraph) {
-    // Scale cylinder length: min 1 unit, max 6 units, based on text length (100-2000 chars)
+    // Scale length: min 1 unit, max 6 units, based on text length (100-2000 chars)
     var minLen = 1, maxLen = 6;
     var clamped = Math.max(100, Math.min(2000, textLength));
     var cylLength = minLen + (maxLen - minLen) * ((clamped - 100) / (2000 - 100));
-    sphereEl.setAttribute("radius", "0.35");
-    sphereEl.setAttribute("height", String(cylLength.toFixed(2)));
-    // Rotate 90° on Z-axis so the cylinder lies horizontally
-    sphereEl.setAttribute("rotation", "0 0 90");
+    if (useMobileBox) {
+      // Mobile fallback: flat wide rectangle instead of rotated cylinder
+      sphereEl.setAttribute("width", String(cylLength.toFixed(2)));
+      sphereEl.setAttribute("height", "0.5");
+      sphereEl.setAttribute("depth", "0.7");
+    } else {
+      sphereEl.setAttribute("radius", "0.35");
+      sphereEl.setAttribute("height", String(cylLength.toFixed(2)));
+      // Rotate 90° on Z-axis so the cylinder lies horizontally
+      sphereEl.setAttribute("rotation", "0 0 90");
+    }
     sphereEl._cylLength = cylLength;
   } else {
     sphereEl.setAttribute("radius", "0.5");
@@ -2791,24 +2801,166 @@ document.addEventListener("keydown", resumeAudio);
 function addMobileControls() {
   if (!isMobile()) return;
 
+  // --- Disable gyroscope/look-controls on mobile ---
+  var sceneReady = document.querySelector("a-scene");
+  function disableLookControls() {
+    var cam = document.querySelector("a-camera");
+    if (cam) {
+      cam.setAttribute("look-controls", "enabled: false");
+    }
+  }
+  if (sceneReady && sceneReady.hasLoaded) {
+    disableLookControls();
+  } else if (sceneReady) {
+    sceneReady.addEventListener("loaded", disableLookControls);
+  }
+
+  // --- Swipe gesture navigation ---
+  var swipeMoveStep = 0.8; // units per swipe (larger since discrete)
+  var swipeThreshold = 30; // min px for a swipe
+  var swipeMaxTime = 500;  // max ms for a swipe
+  var tapMaxDist = 10;     // max px for a tap
+  var tapMaxTime = 300;    // max ms for a tap
+  var lastTapTime = 0;
+  var touchStartX = 0, touchStartY = 0, touchStartTime = 0;
+
+  function doSwipeMove(direction) {
+    var cameraEl = document.querySelector("a-camera");
+    if (!cameraEl) return;
+    var pos = cameraEl.object3D.position;
+    var rot = cameraEl.object3D.rotation;
+    var yaw = rot.y;
+    var forwardX = -Math.sin(yaw);
+    var forwardZ = -Math.cos(yaw);
+    var rightX = Math.cos(yaw);
+    var rightZ = -Math.sin(yaw);
+
+    if (direction === "up") {
+      pos.x += forwardX * swipeMoveStep; pos.z += forwardZ * swipeMoveStep;
+    } else if (direction === "down") {
+      pos.x -= forwardX * swipeMoveStep; pos.z -= forwardZ * swipeMoveStep;
+    } else if (direction === "left") {
+      pos.x -= rightX * swipeMoveStep; pos.z -= rightZ * swipeMoveStep;
+    } else if (direction === "right") {
+      pos.x += rightX * swipeMoveStep; pos.z += rightZ * swipeMoveStep;
+    }
+    collide = true;
+    lastUserMoveTime = Date.now();
+    cancelAutoDrift();
+
+    // Haptic feedback
+    if (navigator.vibrate) navigator.vibrate(10);
+
+    // Directional tick sound via footstepCtx
+    playSwipeTick();
+  }
+
+  function playSwipeTick() {
+    try {
+      var ctx = footstepCtx;
+      if (!ctx) return;
+      if (ctx.state === "suspended") ctx.resume();
+      var osc = ctx.createOscillator();
+      var gain = ctx.createGain();
+      osc.type = "sine";
+      osc.frequency.value = 880;
+      gain.gain.setValueAtTime(0.15, ctx.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.06);
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      osc.start(ctx.currentTime);
+      osc.stop(ctx.currentTime + 0.06);
+    } catch (e) { /* ignore audio errors */ }
+  }
+
+  document.addEventListener("touchstart", function (e) {
+    if (e.touches.length !== 1) return;
+    touchStartX = e.touches[0].clientX;
+    touchStartY = e.touches[0].clientY;
+    touchStartTime = Date.now();
+  }, { passive: true });
+
+  document.addEventListener("touchend", function (e) {
+    // Ignore if touching buttons in the fallback controls
+    var target = e.target;
+    if (target.closest && target.closest("#mobile-controls-fallback")) return;
+
+    var touch = e.changedTouches[0];
+    if (!touch) return;
+    var dx = touch.clientX - touchStartX;
+    var dy = touch.clientY - touchStartY;
+    var dist = Math.sqrt(dx * dx + dy * dy);
+    var elapsed = Date.now() - touchStartTime;
+
+    unlockAllAudio();
+
+    if (dist < tapMaxDist && elapsed < tapMaxTime) {
+      // --- Tap detection ---
+      var now = Date.now();
+      if (now - lastTapTime < doubleTapThreshold) {
+        // Double-tap: play welcome/instructions audio
+        lastTapTime = 0;
+        if (!welcomePlayed) {
+          welcomePlayed = true;
+        }
+        var welcome = new Audio("./audio/welcome.mp3");
+        welcome.play().catch(function (err) { console.warn("Welcome audio:", err); });
+      } else {
+        // Single tap: play/pause nearest audio
+        lastTapTime = now;
+        setTimeout(function () {
+          if (Date.now() - lastTapTime >= doubleTapThreshold - 50) {
+            if (sounds) { checkCollide = false; checkAudio(sounds); }
+          }
+        }, doubleTapThreshold + 50);
+      }
+      return;
+    }
+
+    if (dist >= swipeThreshold && elapsed < swipeMaxTime) {
+      // --- Swipe detection ---
+      e.preventDefault();
+      var absDx = Math.abs(dx);
+      var absDy = Math.abs(dy);
+      var direction;
+      if (absDy > absDx) {
+        direction = dy < 0 ? "up" : "down";
+      } else {
+        direction = dx < 0 ? "left" : "right";
+      }
+      doSwipeMove(direction);
+    }
+  }, { passive: false });
+
+  // --- Hidden fallback D-pad (accessible via toggle) ---
+  var fallbackVisible = false;
+
+  var toggleBtn = document.createElement("button");
+  toggleBtn.id = "mobile-controls-toggle";
+  toggleBtn.textContent = "\u2630";
+  toggleBtn.setAttribute("aria-label", "Toggle on-screen buttons");
+  toggleBtn.style.cssText =
+    "position:fixed;bottom:10px;right:10px;z-index:9999;width:40px;height:40px;" +
+    "font-size:20px;border:none;border-radius:50%;background:rgba(255,255,255,0.4);" +
+    "color:#333;pointer-events:auto;touch-action:none;";
+  toggleBtn.addEventListener("click", function () {
+    fallbackVisible = !fallbackVisible;
+    fallbackContainer.style.display = fallbackVisible ? "flex" : "none";
+    toggleBtn.setAttribute("aria-expanded", String(fallbackVisible));
+  });
+  document.body.appendChild(toggleBtn);
+
+  var fallbackContainer = document.createElement("div");
+  fallbackContainer.id = "mobile-controls-fallback";
+  fallbackContainer.setAttribute("role", "toolbar");
+  fallbackContainer.setAttribute("aria-label", "Navigation buttons (fallback)");
+  fallbackContainer.style.cssText =
+    "position:fixed;bottom:60px;left:50%;transform:translateX(-50%);z-index:9998;" +
+    "display:none;flex-direction:column;align-items:center;gap:6px;pointer-events:none;";
+
   var moveSpeed = 0.15;
   var moveInterval = null;
   var activeDir = null;
-
-  var container = document.createElement("div");
-  container.id = "mobile-controls";
-  container.setAttribute("role", "toolbar");
-  container.setAttribute("aria-label", "Navigation controls");
-  container.style.cssText =
-    "position:fixed;bottom:20px;left:50%;transform:translateX(-50%);z-index:9998;" +
-    "display:flex;flex-direction:column;align-items:center;gap:6px;pointer-events:none;";
-
-  var topRow = document.createElement("div");
-  topRow.style.cssText = "display:flex;gap:6px;pointer-events:none;";
-  var midRow = document.createElement("div");
-  midRow.style.cssText = "display:flex;gap:6px;pointer-events:none;";
-  var botRow = document.createElement("div");
-  botRow.style.cssText = "display:flex;gap:6px;pointer-events:none;";
 
   function makeBtn(label, dir, ariaLabel) {
     var btn = document.createElement("button");
@@ -2821,15 +2973,15 @@ function addMobileControls() {
       "display:flex;align-items:center;justify-content:center;";
 
     function startMove(e) {
-      e.preventDefault();
+      e.preventDefault(); e.stopPropagation();
       unlockAllAudio();
       activeDir = dir;
       collide = true;
-      doMove();
-      moveInterval = setInterval(doMove, 50);
+      doBtnMove();
+      moveInterval = setInterval(doBtnMove, 50);
     }
     function stopMove(e) {
-      e.preventDefault();
+      e.preventDefault(); e.stopPropagation();
       activeDir = null;
       if (moveInterval) { clearInterval(moveInterval); moveInterval = null; }
     }
@@ -2840,7 +2992,7 @@ function addMobileControls() {
     return btn;
   }
 
-  function doMove() {
+  function doBtnMove() {
     if (!activeDir) return;
     var cameraEl = document.querySelector("a-camera");
     if (!cameraEl) return;
@@ -2870,6 +3022,13 @@ function addMobileControls() {
     return sp;
   }
 
+  var topRow = document.createElement("div");
+  topRow.style.cssText = "display:flex;gap:6px;pointer-events:none;";
+  var midRow = document.createElement("div");
+  midRow.style.cssText = "display:flex;gap:6px;pointer-events:none;";
+  var botRow = document.createElement("div");
+  botRow.style.cssText = "display:flex;gap:6px;pointer-events:none;";
+
   topRow.appendChild(makeSpacer());
   topRow.appendChild(makeBtn("\u25B2", "forward", "Move forward"));
   topRow.appendChild(makeSpacer());
@@ -2883,20 +3042,9 @@ function addMobileControls() {
     "background:rgba(255,255,255,0.5);color:#333;pointer-events:auto;" +
     "touch-action:none;user-select:none;-webkit-user-select:none;" +
     "display:flex;align-items:center;justify-content:center;";
-  var pauseTapTime = 0;
   pauseBtn.addEventListener("touchstart", function (e) {
-    e.preventDefault();
+    e.preventDefault(); e.stopPropagation();
     unlockAllAudio();
-    // Double-tap pause button = welcome audio (same as double-tap spacebar)
-    if (!welcomePlayed) {
-      var now = Date.now();
-      if (now - pauseTapTime < doubleTapThreshold) {
-        welcomePlayed = true;
-        var welcome = new Audio("./audio/welcome.mp3");
-        welcome.play().catch(function (err) { console.warn("Welcome audio:", err); });
-      }
-      pauseTapTime = now;
-    }
     if (sounds) { checkCollide = false; checkAudio(sounds); }
   }, { passive: false });
   midRow.appendChild(pauseBtn);
@@ -2906,10 +3054,10 @@ function addMobileControls() {
   botRow.appendChild(makeBtn("\u25BC", "backward", "Move backward"));
   botRow.appendChild(makeSpacer());
 
-  container.appendChild(topRow);
-  container.appendChild(midRow);
-  container.appendChild(botRow);
-  document.body.appendChild(container);
+  fallbackContainer.appendChild(topRow);
+  fallbackContainer.appendChild(midRow);
+  fallbackContainer.appendChild(botRow);
+  document.body.appendChild(fallbackContainer);
 }
 
 // ============================================================
