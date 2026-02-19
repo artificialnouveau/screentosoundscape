@@ -2933,9 +2933,9 @@ function addMobileControls() {
         var rightX = Math.cos(yaw);
         var rightZ = -Math.sin(yaw);
 
-        // Swipe up = move forward (finger drags upward on screen), drag right = strafe right
-        var moveX = (rightX * deltaX - forwardX * deltaY) * swipeSensitivity;
-        var moveZ = (rightZ * deltaX - forwardZ * deltaY) * swipeSensitivity;
+        // Swipe down = move forward (push into scene), drag right = strafe right
+        var moveX = (rightX * deltaX + forwardX * deltaY) * swipeSensitivity;
+        var moveZ = (rightZ * deltaX + forwardZ * deltaY) * swipeSensitivity;
 
         var pos = cameraEl.object3D.position;
         pos.x += moveX;
