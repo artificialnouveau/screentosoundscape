@@ -2880,6 +2880,10 @@ function addMobileControls() {
     glideVX = 0; glideVZ = 0;
   }
 
+  // Prevent browser scroll/pull-to-refresh on the A-Frame canvas so swipes work
+  var sceneCanvas = document.querySelector("a-scene");
+  if (sceneCanvas) sceneCanvas.style.touchAction = "none";
+
   document.addEventListener("touchstart", function (e) {
     if (e.touches.length !== 1) return;
     touchStartX = e.touches[0].clientX;
@@ -2891,13 +2895,16 @@ function addMobileControls() {
     tickPlayed = false;
     // Stop any existing glide when a new touch begins
     stopGlide();
-  }, { passive: true });
+  }, { passive: false });
 
   document.addEventListener("touchmove", function (e) {
     if (e.touches.length !== 1) return;
     // Ignore if touching fallback controls
     var target = e.target;
     if (target.closest && target.closest("#mobile-controls-fallback")) return;
+
+    // Always prevent default to stop browser scroll from stealing vertical swipes
+    e.preventDefault();
 
     var tx = e.touches[0].clientX;
     var ty = e.touches[0].clientY;
@@ -2913,7 +2920,6 @@ function addMobileControls() {
     }
 
     if (isSwiping) {
-      e.preventDefault();
       var deltaX = tx - touchLastX;
       var deltaY = ty - touchLastY;
 
@@ -2927,7 +2933,7 @@ function addMobileControls() {
         var rightX = Math.cos(yaw);
         var rightZ = -Math.sin(yaw);
 
-        // Swipe up (negative deltaY) = move forward, swipe right (positive deltaX) = strafe right
+        // Swipe up = move forward (finger drags upward on screen), drag right = strafe right
         var moveX = (rightX * deltaX - forwardX * deltaY) * swipeSensitivity;
         var moveZ = (rightZ * deltaX - forwardZ * deltaY) * swipeSensitivity;
 
