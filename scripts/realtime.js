@@ -113,7 +113,7 @@ var i18n = {
     overlay_title: "Screen-to-Soundscape",
     overlay_start: "Click anywhere or press any key to start",
     overlay_desktop: "Arrow keys: move. Space: play/pause. Double-tap Space: welcome. Shift: nearest sound. Tab: where am I. P: play all by distance. Enter: load portal. Escape: return to start.",
-    overlay_mobile: "Swipe to move: up/down for forward/back, left/right to strafe. Tap to play nearest audio. Double-tap for instructions.",
+    overlay_mobile: "Swipe to move: down for forward, up for back, left/right to strafe. Tap to play nearest audio. Double-tap for instructions. Triple-tap to return to start.",
     aria_sphere_title: "Article title: {name}",
     aria_sphere_intro: "Introduction",
     aria_sphere_section: "Section: {name}",
@@ -145,7 +145,7 @@ var i18n = {
     overlay_title: "Screen-to-Soundscape",
     overlay_start: "Cliquez n'importe où ou appuyez sur une touche pour commencer",
     overlay_desktop: "Flèches : se déplacer. Espace : pause. Double espace : accueil. Shift : son le plus proche. Tab : où suis-je. P : tout lire. Entrée : portail. Échap : retour au départ.",
-    overlay_mobile: "Glissez pour naviguer : haut/bas pour avancer/reculer, gauche/droite pour se décaler. Tapez pour lire l'audio le plus proche. Double-tap pour les instructions.",
+    overlay_mobile: "Glissez pour naviguer : bas pour avancer, haut pour reculer, gauche/droite pour se décaler. Tapez pour lire l'audio. Double-tap pour les instructions. Triple-tap pour revenir au départ.",
     aria_sphere_title: "Titre de l'article : {name}",
     aria_sphere_intro: "Introduction",
     aria_sphere_section: "Section : {name}",
@@ -1377,10 +1377,11 @@ function createElement(parentEl, x, y, z, color, className, id, soundId, autoPla
     var clamped = Math.max(100, Math.min(2000, textLength));
     var cylLength = minLen + (maxLen - minLen) * ((clamped - 100) / (2000 - 100));
     if (useMobileBox) {
-      // Mobile fallback: flat wide rectangle instead of rotated cylinder
+      // Mobile fallback: visible box instead of rotated cylinder
       sphereEl.setAttribute("width", String(cylLength.toFixed(2)));
-      sphereEl.setAttribute("height", "0.5");
-      sphereEl.setAttribute("depth", "0.7");
+      sphereEl.setAttribute("height", "0.8");
+      sphereEl.setAttribute("depth", "0.8");
+      sphereEl.setAttribute("material", "color: " + color + "; shader: flat; side: double");
     } else {
       sphereEl.setAttribute("radius", "0.35");
       sphereEl.setAttribute("height", String(cylLength.toFixed(2)));
@@ -2820,6 +2821,8 @@ function addMobileControls() {
   var tapMaxTime = 300;    // max ms for a tap
   var swipeThreshold = 15; // min px before swipe movement begins
   var lastTapTime = 0;
+  var tapCount = 0;
+  var tapTimer = null;
   var touchStartX = 0, touchStartY = 0, touchStartTime = 0;
   var touchLastX = 0, touchLastY = 0;
   var isSwiping = false;
@@ -2849,6 +2852,16 @@ function addMobileControls() {
     } catch (e) { /* ignore audio errors */ }
   }
 
+  // Clamp camera position to scene bounds and stop glide if at edge
+  function clampToBounds(pos) {
+    var clamped = false;
+    if (pos.x > maxX + margin) { pos.x = maxX + margin; clamped = true; }
+    if (pos.x < minX - margin) { pos.x = minX - margin; clamped = true; }
+    if (pos.z > z0 + margin)   { pos.z = z0 + margin;   clamped = true; }
+    if (pos.z < minZ - margin) { pos.z = minZ - margin;  clamped = true; }
+    return clamped;
+  }
+
   function startGlide() {
     if (glideAnimId) return;
     function step() {
@@ -2864,6 +2877,12 @@ function addMobileControls() {
         pos.x += glideVX;
         pos.z += glideVZ;
         collide = true;
+        if (clampToBounds(pos)) {
+          // Hit a boundary — stop gliding
+          glideVX = 0; glideVZ = 0;
+          glideAnimId = null;
+          return;
+        }
       }
       glideVX *= glideFriction;
       glideVZ *= glideFriction;
@@ -2940,6 +2959,7 @@ function addMobileControls() {
         var pos = cameraEl.object3D.position;
         pos.x += moveX;
         pos.z += moveZ;
+        clampToBounds(pos);
         collide = true;
 
         // Track velocity for glide
@@ -2971,7 +2991,7 @@ function addMobileControls() {
       return;
     }
 
-    // --- Tap detection ---
+    // --- Tap detection (single / double / triple) ---
     var touch = e.changedTouches[0];
     if (!touch) return;
     var dx = touch.clientX - touchStartX;
@@ -2983,22 +3003,34 @@ function addMobileControls() {
       unlockAllAudio();
       var now = Date.now();
       if (now - lastTapTime < doubleTapThreshold) {
-        // Double-tap: play welcome/instructions audio
-        lastTapTime = 0;
-        if (!welcomePlayed) {
-          welcomePlayed = true;
-        }
-        var welcome = new Audio("./audio/welcome.mp3");
-        welcome.play().catch(function (err) { console.warn("Welcome audio:", err); });
+        tapCount++;
       } else {
-        // Single tap: play/pause nearest audio
-        lastTapTime = now;
-        setTimeout(function () {
-          if (Date.now() - lastTapTime >= doubleTapThreshold - 50) {
-            if (sounds) { checkCollide = false; checkAudio(sounds); }
-          }
-        }, doubleTapThreshold + 50);
+        tapCount = 1;
       }
+      lastTapTime = now;
+
+      // Use timeout to resolve final tap count
+      clearTimeout(tapTimer);
+      tapTimer = setTimeout(function () {
+        if (tapCount >= 3) {
+          // Triple-tap: return to start position
+          var cam = document.querySelector("[camera]");
+          if (cam) {
+            cam.object3D.position.set(homePos.x, homePos.y, homePos.z);
+            collide = true;
+          }
+          if (navigator.vibrate) navigator.vibrate([20, 50, 20]);
+        } else if (tapCount === 2) {
+          // Double-tap: play welcome/instructions audio
+          if (!welcomePlayed) welcomePlayed = true;
+          var welcome = new Audio("./audio/welcome.mp3");
+          welcome.play().catch(function (err) { console.warn("Welcome audio:", err); });
+        } else {
+          // Single tap: play/pause nearest audio
+          if (sounds) { checkCollide = false; checkAudio(sounds); }
+        }
+        tapCount = 0;
+      }, doubleTapThreshold + 50);
     }
   }, { passive: false });
 
