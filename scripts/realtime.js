@@ -2815,45 +2815,21 @@ function addMobileControls() {
     sceneReady.addEventListener("loaded", disableLookControls);
   }
 
-  // --- Swipe gesture navigation ---
-  var swipeMoveStep = 0.8; // units per swipe (larger since discrete)
-  var swipeThreshold = 30; // min px for a swipe
-  var swipeMaxTime = 500;  // max ms for a swipe
+  // --- Smooth swipe gesture navigation ---
   var tapMaxDist = 10;     // max px for a tap
   var tapMaxTime = 300;    // max ms for a tap
+  var swipeThreshold = 15; // min px before swipe movement begins
   var lastTapTime = 0;
   var touchStartX = 0, touchStartY = 0, touchStartTime = 0;
-
-  function doSwipeMove(direction) {
-    var cameraEl = document.querySelector("a-camera");
-    if (!cameraEl) return;
-    var pos = cameraEl.object3D.position;
-    var rot = cameraEl.object3D.rotation;
-    var yaw = rot.y;
-    var forwardX = -Math.sin(yaw);
-    var forwardZ = -Math.cos(yaw);
-    var rightX = Math.cos(yaw);
-    var rightZ = -Math.sin(yaw);
-
-    if (direction === "up") {
-      pos.x += forwardX * swipeMoveStep; pos.z += forwardZ * swipeMoveStep;
-    } else if (direction === "down") {
-      pos.x -= forwardX * swipeMoveStep; pos.z -= forwardZ * swipeMoveStep;
-    } else if (direction === "left") {
-      pos.x -= rightX * swipeMoveStep; pos.z -= rightZ * swipeMoveStep;
-    } else if (direction === "right") {
-      pos.x += rightX * swipeMoveStep; pos.z += rightZ * swipeMoveStep;
-    }
-    collide = true;
-    lastUserMoveTime = Date.now();
-    cancelAutoDrift();
-
-    // Haptic feedback
-    if (navigator.vibrate) navigator.vibrate(10);
-
-    // Directional tick sound via footstepCtx
-    playSwipeTick();
-  }
+  var touchLastX = 0, touchLastY = 0;
+  var isSwiping = false;
+  // Smooth glide: velocity carries over after finger lifts, decays with friction
+  var glideVX = 0, glideVZ = 0;
+  var glideAnimId = null;
+  var swipeSensitivity = 0.012; // 3D units per pixel of finger movement
+  var glideFriction = 0.92;    // velocity multiplier per frame (lower = stops faster)
+  var glideMinSpeed = 0.002;   // stop gliding below this speed
+  var tickPlayed = false;
 
   function playSwipeTick() {
     try {
@@ -2864,27 +2840,132 @@ function addMobileControls() {
       var gain = ctx.createGain();
       osc.type = "sine";
       osc.frequency.value = 880;
-      gain.gain.setValueAtTime(0.15, ctx.currentTime);
-      gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.06);
+      gain.gain.setValueAtTime(0.12, ctx.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.05);
       osc.connect(gain);
       gain.connect(ctx.destination);
       osc.start(ctx.currentTime);
-      osc.stop(ctx.currentTime + 0.06);
+      osc.stop(ctx.currentTime + 0.05);
     } catch (e) { /* ignore audio errors */ }
+  }
+
+  function startGlide() {
+    if (glideAnimId) return;
+    function step() {
+      var speed = Math.sqrt(glideVX * glideVX + glideVZ * glideVZ);
+      if (speed < glideMinSpeed) {
+        glideVX = 0; glideVZ = 0;
+        glideAnimId = null;
+        return;
+      }
+      var cameraEl = document.querySelector("a-camera");
+      if (cameraEl) {
+        var pos = cameraEl.object3D.position;
+        pos.x += glideVX;
+        pos.z += glideVZ;
+        collide = true;
+      }
+      glideVX *= glideFriction;
+      glideVZ *= glideFriction;
+      glideAnimId = requestAnimationFrame(step);
+    }
+    glideAnimId = requestAnimationFrame(step);
+  }
+
+  function stopGlide() {
+    if (glideAnimId) {
+      cancelAnimationFrame(glideAnimId);
+      glideAnimId = null;
+    }
+    glideVX = 0; glideVZ = 0;
   }
 
   document.addEventListener("touchstart", function (e) {
     if (e.touches.length !== 1) return;
     touchStartX = e.touches[0].clientX;
     touchStartY = e.touches[0].clientY;
+    touchLastX = touchStartX;
+    touchLastY = touchStartY;
     touchStartTime = Date.now();
+    isSwiping = false;
+    tickPlayed = false;
+    // Stop any existing glide when a new touch begins
+    stopGlide();
   }, { passive: true });
+
+  document.addEventListener("touchmove", function (e) {
+    if (e.touches.length !== 1) return;
+    // Ignore if touching fallback controls
+    var target = e.target;
+    if (target.closest && target.closest("#mobile-controls-fallback")) return;
+
+    var tx = e.touches[0].clientX;
+    var ty = e.touches[0].clientY;
+    var totalDx = tx - touchStartX;
+    var totalDy = ty - touchStartY;
+    var totalDist = Math.sqrt(totalDx * totalDx + totalDy * totalDy);
+
+    if (!isSwiping && totalDist >= swipeThreshold) {
+      isSwiping = true;
+      unlockAllAudio();
+      lastUserMoveTime = Date.now();
+      cancelAutoDrift();
+    }
+
+    if (isSwiping) {
+      e.preventDefault();
+      var deltaX = tx - touchLastX;
+      var deltaY = ty - touchLastY;
+
+      // Move camera based on finger delta, relative to camera yaw
+      var cameraEl = document.querySelector("a-camera");
+      if (cameraEl) {
+        var rot = cameraEl.object3D.rotation;
+        var yaw = rot.y;
+        var forwardX = -Math.sin(yaw);
+        var forwardZ = -Math.cos(yaw);
+        var rightX = Math.cos(yaw);
+        var rightZ = -Math.sin(yaw);
+
+        // Swipe up (negative deltaY) = move forward, swipe right (positive deltaX) = strafe right
+        var moveX = (rightX * deltaX - forwardX * deltaY) * swipeSensitivity;
+        var moveZ = (rightZ * deltaX - forwardZ * deltaY) * swipeSensitivity;
+
+        var pos = cameraEl.object3D.position;
+        pos.x += moveX;
+        pos.z += moveZ;
+        collide = true;
+
+        // Track velocity for glide
+        glideVX = moveX;
+        glideVZ = moveZ;
+      }
+
+      // Play tick once per swipe gesture
+      if (!tickPlayed) {
+        tickPlayed = true;
+        playSwipeTick();
+        if (navigator.vibrate) navigator.vibrate(8);
+      }
+    }
+
+    touchLastX = tx;
+    touchLastY = ty;
+  }, { passive: false });
 
   document.addEventListener("touchend", function (e) {
     // Ignore if touching buttons in the fallback controls
     var target = e.target;
     if (target.closest && target.closest("#mobile-controls-fallback")) return;
 
+    if (isSwiping) {
+      // Start glide animation with remaining velocity
+      isSwiping = false;
+      startGlide();
+      return;
+    }
+
+    // --- Tap detection ---
     var touch = e.changedTouches[0];
     if (!touch) return;
     var dx = touch.clientX - touchStartX;
@@ -2892,10 +2973,8 @@ function addMobileControls() {
     var dist = Math.sqrt(dx * dx + dy * dy);
     var elapsed = Date.now() - touchStartTime;
 
-    unlockAllAudio();
-
     if (dist < tapMaxDist && elapsed < tapMaxTime) {
-      // --- Tap detection ---
+      unlockAllAudio();
       var now = Date.now();
       if (now - lastTapTime < doubleTapThreshold) {
         // Double-tap: play welcome/instructions audio
@@ -2914,21 +2993,6 @@ function addMobileControls() {
           }
         }, doubleTapThreshold + 50);
       }
-      return;
-    }
-
-    if (dist >= swipeThreshold && elapsed < swipeMaxTime) {
-      // --- Swipe detection ---
-      e.preventDefault();
-      var absDx = Math.abs(dx);
-      var absDy = Math.abs(dy);
-      var direction;
-      if (absDy > absDx) {
-        direction = dy < 0 ? "up" : "down";
-      } else {
-        direction = dx < 0 ? "left" : "right";
-      }
-      doSwipeMove(direction);
     }
   }, { passive: false });
 
